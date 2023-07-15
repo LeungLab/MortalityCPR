@@ -1,5 +1,5 @@
 #######################################################
-# Code for GEMS growth faltering
+# Code for death prediction
 #######################################################
 rm(list=ls()) #this clears the workspace
 graphics.off(); #close all graphics windows
@@ -108,92 +108,12 @@ CPR.funct <- function(data,outcome,iter,nvars_opts){
 }
 
 
-################### FUNCTion faster version just AUCs ####
-CPR.funct <- function(data,outcome,iter,nvars_opts){
-  out=ranger(as.formula(paste(outcome,'~',paste(names,collapse="+"),sep="")),data=data,num.trees=1000,importance="impurity")
-  imps=importance(out)
-  df_imps_full=data.frame(names=names(imps),var_red=as.numeric(imps)) %>% arrange(desc(var_red))
-  
-  
-  result=data.frame(iter=NA,nvar=NA,true=NA,pred_glm=NA,pred_RF=NA)
-  test_record <- NA
-  train_record <- NA
-  
-  for (each in 1:iter){
-    print(each)
-    train=data %>% sample_frac(.80,replace=F)
-    
-    test=data[-which(data$index %in% train$index),]
-    
-    train_record <- c(train_record,table(train[,outcome])[["1"]])
-    test_record <- c(test_record,table(test[,outcome])[["1"]])
-    
-    out=ranger(as.formula(paste(outcome,'~',paste(names,collapse="+"),sep="")),data=train,num.trees=1000,importance="impurity")
-    df_imps=data.frame(names=names(ranger::importance(out)),imps=ranger::importance(out)) %>% arrange(desc(imps))
-    for (nvars in nvars_opts){
-      
-      print(nvars)
-      out1=glm(as.formula(paste(outcome,'~',paste(df_imps$names[1:nvars],collapse="+"),sep="")),data=train,family="binomial",control=glm.control(maxit=50))
-      out2=ranger(as.formula(paste(outcome,'~',paste(df_imps$names[1:nvars],collapse="+"),sep="")),data=train,num.trees=1000)
-      
-      df=data.frame(iter=each,nvar=nvars,true=test[[outcome]],pred_glm=as.numeric(predict(out1,newdata=test,type="response")),pred_RF=as.numeric(predict(out2,data=test,type="response")$predictions))
-      result=rbind(result,df)
-    }
-  }
-  result<-result[-1,]
-  train_record<-train_record[-1]
-  test_record<-test_record[-1]
-  
-  AUCs<-result %>% split(.$nvar) %>% purrr::map(~ci.cvAUC(.$pred_glm,.$true,folds=.$iter))
-  AUCs2<-result %>% split(.$nvar) %>% purrr::map(~ci.cvAUC(.$pred_RF,.$true,folds=.$iter))
-  
-  AUC_df<-rbind(bind_rows(AUCs %>% purrr::map(~data.frame(AUC=.$cvAUC,SE=.$se,lower=.$ci[1],upper=.$ci[2],level=.$confidence,Model="LR"))),
-                bind_rows(AUCs2 %>% purrr::map(~data.frame(AUC=.$cvAUC,SE=.$se,lower=.$ci[1],upper=.$ci[2],level=.$confidence,Model="RF"))))
-  AUC_df$nvar<-rep(nvars_opts,2)
-  AUC_df
-  
-  
-  # calib_fits=data.frame(nvar=NA,iter=NA,intc=NA,intc_LCI=NA,intc_UCI=NA,slope=NA,slope_LCI=NA,slope_UCI=NA)
-  # for (nvars in nvars_opts){
-  #   for (each in 1:iter){
-  #     data.temp <- result %>% filter(nvar==nvars & iter==each)
-  #     
-  #     intercept <- glm(true~1,offset=log(pred_glm/(1-pred_glm)),family="binomial",data=data.temp)
-  #     #summary(intercept) #Should have intercept of 0. intercept is calibration intercept
-  #     slope <- glm(true~log(pred_glm/(1-pred_glm)),family="binomial",data=data.temp)
-  #     #summary(slope) #Should have slope of 1. beta coefficient = slope=calibration slope
-  #     
-  #     df=data.frame(nvar=nvars,iter=each,
-  #                   intc=coef(intercept),intc_LCI=confint(intercept)[1],intc_UCI=confint(intercept)[2],
-  #                   slope=coef(slope)[2],slope_LCI=confint(slope)[2,1],slope_UCI=confint(slope)[2,2])
-  #     calib_fits=rbind(calib_fits,df)
-      
-  #   }
-  # }
-  # calib_fits<-calib_fits[-1,]
-  # calib <- calib_fits %>% group_by(nvar) %>% summarize(mean(intc),mean(intc_LCI),mean(intc_UCI),
-  #                                                      mean(slope),mean(slope_LCI),mean(slope_UCI))
-  # names(calib) <- c("nvar","intc","intc_LCI","intc_UCI","slope","slope_LCI","slope_UCI")  #renaming
-  # 
-  # decilesCC <- result %>% split(.,list(.$iter,.$nvar),drop=TRUE) %>% purrr::map(. %>% arrange(pred_glm)) %>% #now have a df for each iteration of each nvar
-  #   purrr::map(~mutate(.x, decile_glm=ntile(pred_glm,10))) %>% #create predicted glm decile groups; equivalent to: purrr::map(list_resB, ~mutate(.x, decile_glm=ntile(pred_glm,10))); str(temp3)
-  #   bind_rows(.) %>% split(.,f=.$nvar) %>% #a list of df for each nvar which contains all iter for that nvar. "nest" might be better for this
-  #   purrr::map(., . %>% group_by(decile_glm) %>% summarize(mean(true),mean(pred_glm))) #for each decile in each nvar, have an avg true and avg predicted
-  
-  # output<-list(df_imps=df_imps_full,result=result,train_record=train_record,test_record=test_record,AUC_df=AUC_df,decilesCC=decilesCC,calib=calib,iter=iter,nvars_opts=nvars_opts)
-  output<-list(df_imps=df_imps_full,result=result,train_record=train_record,test_record=test_record,AUC_df=AUC_df,iter=iter,nvars_opts=nvars_opts)
-  
-}
-
-
-
 ####################
 #GEMS cases
 ################### import GEMS data ####
 #starting with full dataset
-gems1_orig <- read.csv("", header=T)
+gems1_orig <- read.csv("/gems1.csv", header=T)
 #22567 observations, has type=Case/Control
-
 
 gems1=gems1_orig %>% select(site,	type, f3_gender,	f3_drh_turgor	,	f3_drh_iv	,	f3_drh_hosp,
                             f4a_relationship,	f4a_dad_live	,					
@@ -559,18 +479,69 @@ cases_orig[vars] <- lapply(cases_orig[vars], factor)
 #collected as categorical, but ordinal so leaving as numeric for now: 
 #f4a_prim_schl, f4a_offr_drink, f4a_max_stools, f4a_breastfed, f4b_mouth, f4b_skin, f4b_mental
 
-
-
-
-
 ################### inclusion/exclusion ####
 #cases_orig n=9439
 
-
+#limit to fup time period criteria
+# #table(cases_orig$fup_days,cases_orig$death_all)
+# #do any of these outlier fup dates include kids who died in hospital?
+# temp <- cases_orig %>% filter(f4b_outcome_miss==5)
+# table(temp$fup_days,temp$death_all)
+# #>>>yes. kids who died in hospital per f4b_outcome_miss had weird fup dates so don't exclude deaths based on that. 
+# #but makes sense to exclude survivors based on those cutoffs since want consistent time at risk
+# table(is.na(cases_orig$f5_status),cases_orig$death_all)
+# # 0    1
+# # FALSE 9241  190
+# # TRUE     8    0
+# table(is.na(cases_orig$f5_status),cases_orig$f5_child_health_miss)
+# # 1    2    3    4    5    9
+# # FALSE 6266  834  839  470  186  836
+# # TRUE     0    0    0    0    0    8
+# #>>> are 8 kids who not reported dead, but missing fup info. should drop these too
+# #>>> also, f5_status redundant for inclusion/exclusion since consider f5_child_health_miss, and they're in full agreement on who didn't have fup
+#if not dead and fup days outside bounds, don't want
+#if dead, any fup days acceptable
+#f5_status ==1 60d f-up conducted, 0==not conducted
+  
 
 # #f4b_outcome: 1=resolved; 2=improved; 3=no better; 4=worse; 5=died at hosp; 6=unknown/LTF
 #f5_status: 1=60d f-up conducted; 0=not conducted)
 # #f5_child_health_miss: 1=appears healthy; 2=improved but not back to normal; 3=no better; 4=worse; 5=died; 9=missing
+#death_all: 0=didn't die; 1=did die; any death after hospital admit
+      # cases_orig=cases_orig %>% mutate(death_all=(case_when(
+      #   f4b_outcome==5 ~ 1,
+      #   f5_child_health==5 ~ 1, 
+      #   TRUE~0)),
+      #   death_hosp=(case_when(
+      #     f4b_outcome==5 ~ 1,
+      #     TRUE~0)),
+      #   death_home=(case_when(
+      #     (f4b_outcome!=5 & f5_child_health==5) ~1,
+      #     TRUE~0)))
+
+#in co-author review, decide this fup_days criteria doesn't work for all observations, don't want to apply to all so incorporate fup_days inclusion criteria to each individual scenario below
+#cases_orig$drop <- ifelse(is.na(cases_orig$f5_status) | (cases_orig$death_all==0 & (cases_orig$fup_days<49 | cases_orig$fup_days>91)),1,0)
+
+# #cases at hospital discharge:
+# table(cases_orig$f4b_outcome_miss,cases_orig$f5_child_health_miss)
+# #      1    2    3    4    5    9
+# # 1  420   16  107   44    8   19
+# # 2 2869  526  229  171   84  300
+# # 3 2684  247  503  254   38  461
+# # 4    4    2    0    0    2    3
+# # 5    0    0    0    0   45    4
+# # 6  289   43    0    1    9   56
+# # 9    0    0    0    0    0    1
+
+#@ hosp discharge and @ 60d f-up
+
+# #drop from all analyses if:
+# #missing missing
+# #dead alive
+# #alive missing 
+# miss.miss <- cases_orig %>% filter((f4b_outcome_miss==6 | f4b_outcome_miss==9) & f5_child_health_miss==9) #n=1+56=57, what expect
+# dead.alive <- cases_orig %>% filter(f4b_outcome_miss==5 & (f5_child_health_miss!=5 & f5_child_health_miss!=9)) #n=0+0+0+0=0, what expect
+# alive.miss <- cases_orig %>% filter((f4b_outcome_miss!=5 & f4b_outcome_miss!=6 & f4b_outcome_miss!=9) & f5_child_health_miss==9) #n=19+300+461+3=783, what expect
 
 #for dead_all (died after hosp admit)
 #missing dead
@@ -795,7 +766,23 @@ names <- c("site","f3_gender","f3_drh_turgor","f3_drh_iv","f3_drh_hosp",
            # 'f5_child_feces_factor', 'f5_feces_visible', 'f5_house_feces_factor',
 )
 
+#table(cases$f5_child_health_miss,is.na(cases$f5_skin_flaky))
+#f4a_share_fac leads to some being dropped, keep considering for now
+#variables w/ small cell sizes, dropping for now: "f4a_chlorine","f4a_primcare","f4a_mom_live",
+# "f4a_drh_undrink","f4a_drh_fever","f4a_drh_breath","f4b_skin_pinch",
+# "f5_diag_meng","f5_wash_piped","f4a_fetch_water","f4a_trip_day","f4a_trip_week",
+# f4a_notrt_water, f4b_volume, 
+#these lead to lots being dropped >> are physical exam at f-up, not useful for predicting what happens at enrollment, so not analyze anymore
+#f5_rectal
+#f5_bipedal
+#f5_abn_hair
+#f5_under_nutr
+#f5_skin_flaky
 
+#checking all appropriates ones are factorized
+# temp<-temp_gf[names]
+# str(temp)
+# summary(temp)
 
 ################### cases into age and other sub groups ####
 complete_anydeath_age1 <- complete_anydeath %>% filter(agegroup == 1)
@@ -898,10 +885,10 @@ p3 <- hist(kilifi[which(kilifi$death_all==0),]$f4b_temp,freq=F)
 p4 <- hist(kilifi[which(kilifi$death_all==1),]$f4b_temp,freq=F)
 #jpeg("/overlap_hist_temp.jpg")
 par(mfrow=c(2,1))
-plot( p1, col=rgb(1,0,0,1/4), xlim=c(30,45),ylim=c(0,0.6),freq=F,xlab="Temperature (°C)",main="Death any time by Temperature in GEMS")
+plot( p1, col=rgb(1,0,0,1/4), xlim=c(30,45),ylim=c(0,0.6),freq=F,xlab="Temperature (?C)",main="Death any time by Temperature in GEMS")
 plot( p2, col=rgb(0,0,1,1/4),  xlim=c(30,45),ylim=c(0,0.6),freq=F, add=T)
 legend('topright',c('survived','died'),fill = c(rgb(1,0,0,1/4),rgb(0,0,1,1/4)), bty = 'n')
-plot( p3, col=rgb(1,0,0,1/4), xlim=c(30,45),ylim=c(0,0.6),freq=F,xlab="Temperature (°C)",main="Death any time by Temperature in Kilifi")
+plot( p3, col=rgb(1,0,0,1/4), xlim=c(30,45),ylim=c(0,0.6),freq=F,xlab="Temperature (?C)",main="Death any time by Temperature in Kilifi")
 plot( p4, col=rgb(0,0,1,1/4),  xlim=c(30,45),ylim=c(0,0.6),freq=F, add=T)
 legend('topright',c('survived','died'),fill = c(rgb(1,0,0,1/4),rgb(0,0,1,1/4)), bty = 'n')
 dev.off()
@@ -946,9 +933,6 @@ data.to.table<-rbind(missing,data.to.table)
 table1(~ as.factor(death_all) + base_age + site + f4b_muac + f4b_resp + 
          f4b_temp + f4a_ppl_house | as.factor(included), 
        data=data.to.table)
-
-
-
 
 
 ################### descriptive Se/Sp for different regimens ####
@@ -1213,9 +1197,6 @@ main <- CPR.funct(data=complete_anydeath,outcome="death_all",iter=100,nvars_opts
 main[["df_imps"]]
 main[["AUC_df"]]
 main[["calib"]]
-
-#save(main, file = "/main.059.100iter.nocallib.Rdata")
-
 
 # names      var_red
 # 1               f4b_muac 12.967363484
@@ -1527,7 +1508,7 @@ CV.roc.data.DA.5 <- CV.roc.data.DeathAll$DA.5
 CV.roc.data.DA.10 <- CV.roc.data.DeathAll$DA.10
 
 #Plot CV AUC >>> SMA: a single line of the averaged cross-validated ROC curve
-#jpeg("/roc_DeathAll.jpg",width=480,height=480,quality=400)
+#tiff("/roc_DeathAll.tif",units="px",width=1500,height=1500,res=300)
 plot(CV.roc.data.DA.2$perf, avg="vertical", main="Cross-validated ROC Curves for All Deaths",
      col="#1c61b6", lwd=2, lty=1,
      xlab="False positive rate (1-specificity)",ylab="Average true positive rate (sensitivity)") 
@@ -1623,9 +1604,6 @@ complete_anydeath_subset <- complete_anydeath %>%  select(caseid,death_all,death
                                                           site,f4b_muac,f4b_haz,month,f4b_resp,f4b_temp)
 summary(complete_anydeath_subset)
 
-
-
-
 ################### main + 0-11(age_1) any death all cases -HAZ +MUAC ####
 names<-append(x=names, values=c("f4b_muac"))
 names <- names[!names %in% c("f4b_haz")]
@@ -1634,9 +1612,6 @@ main.011 <- CPR.funct(data=complete_anydeath_age1,outcome="death_all",iter=100,n
 main.011[["df_imps"]]
 main.011[["AUC_df"]]
 main.011[["calib"]]
-
-#save(main.011, file = "/main.011.100iter.nocallib.Rdata")
-
 
 # names     var_red
 # 1               f4b_muac 7.004748198
@@ -1841,8 +1816,6 @@ main.1223[["df_imps"]]
 main.1223[["AUC_df"]]
 main.1223[["calib"]]
 
-#save(main.1223, file = "/main.1223.100iter.nocallib.Rdata")
-
 # names      var_red
 # 1               f4b_muac 3.484889e+00
 # 2               f4b_temp 1.350539e+00
@@ -2038,8 +2011,127 @@ dev.off()
 names<-append(x=names, values=c("f4b_muac"))
 names <- names[!names %in% c("f4b_haz")]
 
+#trying to find why sometimes has convergence issues
+#dataset of only predictor variables considering
+temp<-complete_anydeath_age3[names]
+#table all of these
+temp %>% map( table )
 
-main.2459 <- CPR.funct(data=complete_anydeath_age3,outcome="death_all",iter=100,nvars_opts=c(1:10))
+#these all have small cell sizes
+# $f4a_relationship
+# $f4a_prim_schl
+# $f4a_house_boat
+# $f4a_water_covpwell
+# $f4a_water_unspring
+# $f4a_water_avail
+# $f4a_trt_method
+# $f4a_breastfed
+# $f4a_drh_blood
+# $f4a_drh_vomit
+# $f4a_drh_lessdrink
+# $f4a_drh_strain
+# $f4a_drh_prolapse
+# $f4a_cur_drymouth
+# $f4a_cur_fastbreath
+# $f4a_hometrt_milk
+# $f4a_hometrt_othrliq
+# $f4a_offr_drink
+# $f4a_seek_friend
+# $f4b_bipedal
+# $f4b_recommend
+# $f4a_fuel_elec
+# $f4a_house_none
+# $f4a_water_prospring
+# $f4a_water_well
+# $f4a_water_pond
+# $f4a_water_othr
+# $f4a_seek_other
+# $f4b_chest_indrw
+# $f4b_rectal
+# $f4b_skin_flaky
+
+complete_anydeath_age3_complete <- complete_anydeath_age3
+summary(complete_anydeath_age3_complete$f4a_disp_feces)
+#combine 1, 4, 6
+complete_anydeath_age3_complete$f4a_disp_feces <- 
+  as.factor(ifelse((complete_anydeath_age3_complete$f4a_disp_feces!=2 & complete_anydeath_age3_complete$f4a_disp_feces!=3),
+  1,complete_anydeath_age3_complete$f4a_disp_feces))
+summary(complete_anydeath_age3_complete$f4a_disp_feces)
+
+summary(complete_anydeath_age3_complete$f4a_fac_waste)
+#drop 5,6
+complete_anydeath_age3_complete <- complete_anydeath_age3_complete %>% filter(f4a_fac_waste!=6)
+summary(complete_anydeath_age3_complete$f4a_fac_waste)
+
+#combine 3,4
+summary(complete_anydeath_age3_complete$f4a_wash_use)
+complete_anydeath_age3_complete$f4a_wash_use <- 
+  as.factor(ifelse((complete_anydeath_age3_complete$f4a_wash_use==4),
+                   3,complete_anydeath_age3_complete$f4a_wash_use))
+summary(complete_anydeath_age3_complete$f4a_wash_use)
+
+#make 9 into 0
+summary(complete_anydeath_age3_complete$f4a_drh_thirst)
+complete_anydeath_age3_complete$f4a_drh_thirst <- 
+  (ifelse((complete_anydeath_age3_complete$f4a_drh_thirst==9 | complete_anydeath_age3_complete$f4a_drh_thirst==0),
+                   0,complete_anydeath_age3_complete$f4a_drh_thirst))
+complete_anydeath_age3_complete$f4a_drh_thirst <- 
+  (ifelse((complete_anydeath_age3_complete$f4a_drh_thirst==2),
+          1,complete_anydeath_age3_complete$f4a_drh_thirst))
+complete_anydeath_age3_complete$f4a_drh_thirst <- as.factor(complete_anydeath_age3_complete$f4a_drh_thirst)
+table(complete_anydeath_age3_complete$f4a_drh_thirst)
+summary(complete_anydeath_age3_complete$f4a_drh_thirst)
+
+#make 9 into 0
+summary(complete_anydeath_age3_complete$f4a_cur_thirsty)
+complete_anydeath_age3_complete$f4a_cur_thirsty <- 
+  (ifelse((complete_anydeath_age3_complete$f4a_cur_thirsty==9 | complete_anydeath_age3_complete$f4a_cur_thirsty==0),
+          0,complete_anydeath_age3_complete$f4a_cur_thirsty))
+complete_anydeath_age3_complete$f4a_cur_thirsty <- 
+  (ifelse((complete_anydeath_age3_complete$f4a_cur_thirsty==2),
+          1,complete_anydeath_age3_complete$f4a_cur_thirsty))
+complete_anydeath_age3_complete$f4a_cur_thirsty <- as.factor(complete_anydeath_age3_complete$f4a_cur_thirsty)
+table(complete_anydeath_age3_complete$f4a_cur_thirsty)
+summary(complete_anydeath_age3_complete$f4a_cur_thirsty)
+
+#make 9 into 0
+summary(complete_anydeath_age3_complete$f4a_cur_skin)
+complete_anydeath_age3_complete$f4a_cur_skin <- 
+  (ifelse((complete_anydeath_age3_complete$f4a_cur_skin==9 | complete_anydeath_age3_complete$f4a_cur_skin==0),
+          0,complete_anydeath_age3_complete$f4a_cur_skin))
+complete_anydeath_age3_complete$f4a_cur_skin <- 
+  (ifelse((complete_anydeath_age3_complete$f4a_cur_skin==2),
+          1,complete_anydeath_age3_complete$f4a_cur_skin))
+complete_anydeath_age3_complete$f4a_cur_skin <- as.factor(complete_anydeath_age3_complete$f4a_cur_skin)
+table(complete_anydeath_age3_complete$f4a_cur_skin)
+summary(complete_anydeath_age3_complete$f4a_cur_skin)
+
+#combine 4 and 5
+summary(complete_anydeath_age3_complete$f4a_dad_live)
+complete_anydeath_age3_complete$f4a_dad_live <- 
+  as.factor(ifelse((complete_anydeath_age3_complete$f4a_dad_live==4 | complete_anydeath_age3_complete$f4a_dad_live==5),
+                   4,complete_anydeath_age3_complete$f4a_dad_live))
+summary(complete_anydeath_age3_complete$f4a_dad_live)
+
+summary(complete_anydeath_age3_complete$f4a_ms_water)
+#drop 4
+complete_anydeath_age3_complete <- complete_anydeath_age3_complete %>% filter(f4a_ms_water!=4)
+summary(complete_anydeath_age3_complete$f4a_ms_water)
+
+
+names <- names[!names %in% c("f4b_haz","f4a_relationship","f4a_prim_schl",
+                             "f4a_house_boat","f4a_water_covpwell","f4a_water_unspring",
+                             "f4a_water_avail","f4a_trt_method","f4a_breastfed",
+                             "f4a_drh_blood","f4a_drh_vomit","f4a_drh_lessdrink",
+                             "f4a_drh_strain","f4a_drh_prolapse","f4a_cur_drymouth",
+                             "f4a_cur_fastbreath","f4a_hometrt_milk","f4a_hometrt_othrliq",
+                             "f4a_offr_drink","f4a_seek_friend","f4b_bipedal",
+                             "f4b_recommend","f4a_fuel_elec","f4a_house_none",
+                             "f4a_water_prospring","f4a_water_well","f4a_water_pond",
+                             "f4a_water_othr","f4a_seek_other","f4b_chest_indrw",
+                             "f4b_rectal","f4b_skin_flaky")]
+
+main.2459 <- CPR.funct(data=complete_anydeath_age3_complete,outcome="death_all",iter=100,nvars_opts=c(1:10))
 main.2459[["df_imps"]]
 main.2459[["AUC_df"]]
 main.2459[["calib"]]
@@ -2237,7 +2329,7 @@ dev.off()
 
 ################### main (0-59mo) any death -HAZ + MUAC by country - Gambia ####
 names<-append(x=names, values=c("f4b_muac"))
-names <- names[!names %in% c("f4b_haz")]
+names <- names[!names %in% c("f4b_haz","site")]
 
 complete_anydeath_Gambia_complete <- complete_anydeath_Gambia
 #f4a_relationship recode everything that's not 1 to 2
@@ -2268,10 +2360,12 @@ summary(complete_anydeath_Gambia_complete$f4a_relationship)
 # summary(complete_anydeath_Gambia_complete$f4a_disp_feces )
 
 
-main.Gambia <- CPR.funct(data=complete_anydeath_Gambia_complete,outcome="death_all",iter=100,nvars_opts=c(5,10))
+main.Gambia <- CPR.funct(data=complete_anydeath_Gambia_complete,outcome="death_all",iter=100,nvars_opts=c(1:10))
 main.Gambia[["df_imps"]]
 main.Gambia[["AUC_df"]]
 main.Gambia[["calib"]]
+
+#save(main.Gambia, file = "/main.Gambia.100iter.callib.Rdata")
 
 # names     var_red
 # 1               f4b_muac 3.452427229
@@ -2414,20 +2508,64 @@ main.Gambia[["calib"]]
 # 3 0.7344339 0.010049168 0.7147379 0.7541299  0.95    RF    5
 # 4 0.7458098 0.009860614 0.7264834 0.7651363  0.95    RF   10
 # > main.Gambia[["calib"]]
-# # A tibble: 2 × 7
+# # A tibble: 2 ? 7
 # nvar     intc intc_LCI intc_UCI slope slope_LCI slope_UCI
 # <dbl>    <dbl>    <dbl>    <dbl> <dbl>     <dbl>     <dbl>
 #   1     5  0.0211    -0.888    0.767 0.898     0.343      1.55
 # 2    10 -0.00208   -0.943    0.774 0.740     0.267      1.28
 
+# AUC          SE     lower     upper level Model nvar
+# 1  0.7976624 0.009452858 0.7791352 0.8161897  0.95    LR    1
+# 2  0.8090085 0.008843450 0.7916757 0.8263413  0.95    LR    2
+# 3  0.8083496 0.008882485 0.7909402 0.8257589  0.95    LR    3
+# 4  0.8076695 0.008894526 0.7902365 0.8251024  0.95    LR    4
+# 5  0.8057025 0.008915963 0.7882275 0.8231775  0.95    LR    5
+# 6  0.8057919 0.008936545 0.7882766 0.8233072  0.95    LR    6
+# 7  0.8055826 0.008937386 0.7880656 0.8230995  0.95    LR    7
+# 8  0.8048670 0.008951456 0.7873225 0.8224116  0.95    LR    8
+# 9  0.8062706 0.009115996 0.7884036 0.8241377  0.95    LR    9
+# 10 0.7996615 0.009269369 0.7814938 0.8178291  0.95    LR   10
+# 11 0.6939819 0.016526400 0.6615907 0.7263730  0.95    RF    1
+# 12 0.7743176 0.010823484 0.7531040 0.7955312  0.95    RF    2
+# 13 0.7766464 0.009393620 0.7582352 0.7950575  0.95    RF    3
+# 14 0.7562166 0.010710072 0.7352253 0.7772080  0.95    RF    4
+# 15 0.7531385 0.010146721 0.7332513 0.7730257  0.95    RF    5
+# 16 0.7521292 0.010084955 0.7323630 0.7718953  0.95    RF    6
+# 17 0.7558029 0.010079991 0.7360465 0.7755593  0.95    RF    7
+# 18 0.7590646 0.009988616 0.7394872 0.7786419  0.95    RF    8
+# 19 0.7750424 0.009674056 0.7560816 0.7940032  0.95    RF    9
+# 20 0.7763614 0.009652583 0.7574427 0.7952801  0.95    RF   10
+
+# nvar    intc intc_LCI intc_UCI slope slope_LCI slope_UCI
+# <int>   <dbl>    <dbl>    <dbl> <dbl>     <dbl>     <dbl>
+#   1     1 -0.0726   -0.989    0.662 1.24      0.498      2.28
+# 2     2 -0.0613   -0.982    0.679 1.26      0.467     NA   
+# 3     3 -0.0582   -0.984    0.688 1.27      0.478      3.24
+# 4     4 -0.0455   -0.975    0.705 1.49    -23.1      100.  
+# 5     5 -0.0459   -0.979    0.709 1.46    -23.1      100.  
+# 6     6 -0.0489   -0.984    0.708 1.43    -23.0       99.5 
+# 7     7 -0.0446   -0.986    0.718 1.39    -22.7       98.1 
+# 8     8 -0.0434   -0.990    0.724 1.38    -22.3       96.7 
+# 9     9 -0.0540   -1.01     0.725 0.881     0.354      1.53
+# 10    10 -0.0625   -1.03     0.727 0.841     0.324      1.50
+
 ################### main (0-59mo) any death -HAZ + MUAC by country - Mali ####
 names<-append(x=names, values=c("f4b_muac"))
-names <- names[!names %in% c("f4b_haz")]
+names <- names[!names %in% c("f4b_haz","site")]
 
-main.Mali <- CPR.funct(data=complete_anydeath_Mali,outcome="death_all",iter=100,nvars_opts=c(5,10))
+#trying to find why sometimes has convergence issues
+#dataset of only predictor variables considering
+temp<-complete_anydeath_Mali[names]
+#table all of these
+temp %>% map( table )
+
+main.Mali <- CPR.funct(data=complete_anydeath_Mali,outcome="death_all",iter=100,nvars_opts=c(1:10))
 main.Mali[["df_imps"]]
 main.Mali[["AUC_df"]]
 main.Mali[["calib"]]
+
+#save(main.Mali, file = "/main.Mali.100iter.callib.Rdata")
+
 
 # names      var_red
 # 1               f4b_muac 1.309507e+00
@@ -2570,16 +2708,50 @@ main.Mali[["calib"]]
 # 3 0.7926260 0.011143771 0.7707846 0.8144674  0.95    RF    5
 # 4 0.7833254 0.011030389 0.7617063 0.8049446  0.95    RF   10
 # > main.Mali[["calib"]]
-# # A tibble: 2 × 7
+# # A tibble: 2 ? 7
 # nvar    intc intc_LCI intc_UCI slope slope_LCI slope_UCI
 # <dbl>   <dbl>    <dbl>    <dbl> <dbl>     <dbl>     <dbl>
 #   1     5 -0.0616    -1.30    0.845 0.930     0.315      1.69
 # 2    10 -0.0225    -1.32    0.944 0.731     0.240      1.35
 
+# AUC          SE     lower     upper level Model nvar
+# 1  0.8069986 0.007891507 0.7915315 0.8224656  0.95    LR    1
+# 2  0.8955410 0.005487912 0.8847849 0.9062971  0.95    LR    2
+# 3  0.8978454 0.005062182 0.8879237 0.9077670  0.95    LR    3
+# 4  0.8934389 0.005135882 0.8833728 0.9035051  0.95    LR    4
+# 5  0.8890300 0.005422446 0.8784022 0.8996578  0.95    LR    5
+# 6  0.8836620 0.005456767 0.8729670 0.8943571  0.95    LR    6
+# 7  0.8768986 0.005606090 0.8659109 0.8878863  0.95    LR    7
+# 8  0.8731268 0.005795757 0.8617673 0.8844863  0.95    LR    8
+# 9  0.8720127 0.005815350 0.8606148 0.8834105  0.95    LR    9
+# 10 0.8722369 0.005827473 0.8608153 0.8836586  0.95    LR   10
+# 11 0.6031108 0.022701802 0.5586161 0.6476055  0.95    RF    1
+# 12 0.7323794 0.017684406 0.6977186 0.7670402  0.95    RF    2
+# 13 0.7809822 0.012299924 0.7568747 0.8050896  0.95    RF    3
+# 14 0.7924053 0.013237561 0.7664602 0.8183505  0.95    RF    4
+# 15 0.8099229 0.010753764 0.7888459 0.8309999  0.95    RF    5
+# 16 0.8068283 0.010587859 0.7860765 0.8275801  0.95    RF    6
+# 17 0.8014055 0.009792318 0.7822129 0.8205981  0.95    RF    7
+# 18 0.7977577 0.009381799 0.7793698 0.8161457  0.95    RF    8
+# 19 0.7900897 0.011114791 0.7683051 0.8118742  0.95    RF    9
+# 20 0.7896290 0.010928077 0.7682104 0.8110477  0.95    RF   10
+
+# nvar     intc intc_LCI intc_UCI slope slope_LCI slope_UCI
+# <int>    <dbl>    <dbl>    <dbl> <dbl>     <dbl>     <dbl>
+#   1     1 -0.0276     -1.24    0.838 0.913     0.106      1.82
+# 2     2 -0.0211     -1.25    0.870 4.46    -27.4      103.  
+# 3     3 -0.0143     -1.24    0.880 1.05      0.384      1.92
+# 4     4 -0.00566    -1.24    0.891 1.01      0.356      1.85
+# 5     5  0.00379    -1.23    0.904 0.969     0.330      1.77
+# 6     6  0.0100     -1.24    0.925 0.915     0.293      1.76
+# 7     7  0.0254     -1.23    0.947 0.839     0.257      1.56
+# 8     8  0.0313     -1.23    0.966 0.771     0.231      1.41
+# 9     9  0.0333     -1.24    0.979 0.734     0.219      1.34
+# 10    10  0.0302     -1.26    0.988 0.719     0.218      1.32
 
 ################### main (0-59mo) any death -HAZ + MUAC by country - Mozam ####
 names<-append(x=names, values=c("f4b_muac"))
-names <- names[!names %in% c("f4b_haz")]
+names <- names[!names %in% c("f4b_haz","site")]
 
 complete_anydeath_Mozam_complete <- complete_anydeath_Mozam
 #f4a_dad_live recode 4 to 5 
@@ -2592,10 +2764,12 @@ summary(complete_anydeath_Mozam_complete$f4a_relationship)
 complete_anydeath_Mozam_complete$f4a_relationship <- as.factor(ifelse(complete_anydeath_Mozam_complete$f4a_relationship!=1,2,complete_anydeath_Mozam_complete$f4a_relationship))
 summary(complete_anydeath_Mozam_complete$f4a_relationship)
 
-main.Mozam <- CPR.funct(data=complete_anydeath_Mozam_complete,outcome="death_all",iter=100,nvars_opts=c(5,10))
+main.Mozam <- CPR.funct(data=complete_anydeath_Mozam_complete,outcome="death_all",iter=100,nvars_opts=c(1:10))
 main.Mozam[["df_imps"]]
 main.Mozam[["AUC_df"]]
 main.Mozam[["calib"]]
+
+#save(main.Mozam, file = "/main.Mozam.100iter.callib.Rdata")
 
 # names      var_red
 # 1               f4b_muac 3.9423174460
@@ -2738,22 +2912,99 @@ main.Mozam[["calib"]]
 # 3 0.7424936 0.010166174 0.7225683 0.7624189  0.95    RF    5
 # 4 0.7307943 0.010505919 0.7102031 0.7513855  0.95    RF   10
 # > main.Mozam[["calib"]]
-# # A tibble: 2 × 7
+# # A tibble: 2 ? 7
 # nvar    intc intc_LCI intc_UCI slope slope_LCI slope_UCI
 # <dbl>   <dbl>    <dbl>    <dbl> <dbl>     <dbl>     <dbl>
 #   1     5 -0.0557   -0.993    0.716 0.894     0.282      1.67
 # 2    10 -0.0641   -1.02     0.729 0.720     0.199      1.37
+
+# AUC          SE     lower     upper level Model nvar
+# 1  0.8110966 0.007634148 0.7961340 0.8260593  0.95    LR    1
+# 2  0.8029129 0.007940776 0.7873493 0.8184765  0.95    LR    2
+# 3  0.8122990 0.007970979 0.7966762 0.8279218  0.95    LR    3
+# 4  0.8045354 0.008066750 0.7887249 0.8203460  0.95    LR    4
+# 5  0.7979895 0.008196978 0.7819237 0.8140553  0.95    LR    5
+# 6  0.7949972 0.008326855 0.7786769 0.8113175  0.95    LR    6
+# 7  0.7927221 0.008420936 0.7762174 0.8092269  0.95    LR    7
+# 8  0.7893091 0.008634358 0.7723861 0.8062321  0.95    LR    8
+# 9  0.7865634 0.008800841 0.7693140 0.8038127  0.95    LR    9
+# 10 0.7821700 0.009089561 0.7643548 0.7999852  0.95    LR   10
+# 11 0.7233348 0.013964125 0.6959656 0.7507040  0.95    RF    1
+# 12 0.7300486 0.010105983 0.7102413 0.7498560  0.95    RF    2
+# 13 0.7480020 0.009997949 0.7284064 0.7675977  0.95    RF    3
+# 14 0.7676085 0.009553986 0.7488830 0.7863339  0.95    RF    4
+# 15 0.7646466 0.009440086 0.7461443 0.7831488  0.95    RF    5
+# 16 0.7584579 0.009432713 0.7399701 0.7769457  0.95    RF    6
+# 17 0.7566420 0.009520588 0.7379820 0.7753021  0.95    RF    7
+# 18 0.7487476 0.009719122 0.7296984 0.7677967  0.95    RF    8
+# 19 0.7541711 0.009658383 0.7352410 0.7731012  0.95    RF    9
+# 20 0.7517044 0.009767378 0.7325607 0.7708481  0.95    RF   10
+
+# nvar    intc intc_LCI intc_UCI slope slope_LCI slope_UCI
+# <int>   <dbl>    <dbl>    <dbl> <dbl>     <dbl>     <dbl>
+#   1     1 0.00626   -0.873    0.736 1.14      0.421      2.06
+# 2     2 0.0239    -0.862    0.761 1.10      0.411      2.00
+# 3     3 0.0131    -0.882    0.760 1.10      0.435      2.00
+# 4     4 0.0138    -0.883    0.763 1.03      0.388      1.88
+# 5     5 0.0228    -0.878    0.775 0.966     0.350      1.75
+# 6     6 0.0327    -0.870    0.788 0.931     0.332      1.69
+# 7     7 0.0344    -0.874    0.795 0.911     0.325      1.66
+# 8     8 0.0350    -0.878    0.800 0.882     0.314      1.61
+# 9     9 0.0304    -0.887    0.800 0.849     0.299      1.55
+# 10    10 0.0292    -0.894    0.804 0.822     0.277      1.56
+
 ################### main (0-59mo) any death -HAZ + MUAC by country - Kenya ####
 names<-append(x=names, values=c("f4b_muac"))
-names <- names[!names %in% c("f4b_haz")]
+names <- names[!names %in% c("f4b_haz","site")]
 
-summary(complete_anydeath_Kenya$f4a_relationship )
-f4a_prim_schl 
+complete_anydeath_Kenya_complete <- complete_anydeath_Kenya
+summary(complete_anydeath_Kenya$f4a_relationship)
+#everything that not 1 recode to 2
+complete_anydeath_Kenya$f4a_relationship <- as.factor(ifelse(complete_anydeath_Kenya$f4a_relationship!=1,2,complete_anydeath_Kenya$f4a_relationship))
+summary(complete_anydeath_Kenya$f4a_relationship)
 
-main.Kenya <- CPR.funct(data=complete_anydeath_Kenya,outcome="death_all",iter=10,nvars_opts=c(1:10,15,20,30,40,50))
+summary(complete_anydeath_Kenya_complete$f4a_trt_method )
+#5 and 7 recode to 2
+complete_anydeath_Kenya_complete$f4a_trt_method <- as.factor(ifelse((complete_anydeath_Kenya_complete$f4a_trt_method==5|complete_anydeath_Kenya_complete$f4a_trt_method==7)
+                                                           ,2,complete_anydeath_Kenya_complete$f4a_trt_method))
+complete_anydeath_Kenya_complete$f4a_trt_method <- as.factor(ifelse((complete_anydeath_Kenya_complete$f4a_trt_method==1)
+                                                           ,0,complete_anydeath_Kenya_complete$f4a_trt_method))
+summary(complete_anydeath_Kenya_complete$f4a_trt_method)
+
+summary(complete_anydeath_Kenya$f4a_prim_schl)
+#recode 5 into 4
+#drop 1 and 7
+complete_anydeath_Kenya_complete$f4a_prim_schl <- as.factor(ifelse((complete_anydeath_Kenya_complete$f4a_prim_schl==5)
+                                                                    ,4,complete_anydeath_Kenya_complete$f4a_prim_schl))
+complete_anydeath_Kenya_complete <- complete_anydeath_Kenya_complete %>% filter(f4a_prim_schl!=1 & f4a_prim_schl!=7)
+summary(complete_anydeath_Kenya_complete$f4a_prim_schl)
+
+summary(complete_anydeath_Kenya_complete$f4a_ms_water)
+#3 recode into 2, drop 4; based on recode did in var creation
+complete_anydeath_Kenya_complete$f4a_ms_water <- 
+  (ifelse((complete_anydeath_Kenya_complete$f4a_ms_water==0),
+          0,complete_anydeath_Kenya_complete$f4a_ms_water))
+#table(complete_anydeath_Kenya_complete$f4a_ms_water)
+complete_anydeath_Kenya_complete$f4a_ms_water <- 
+  (ifelse((complete_anydeath_Kenya_complete$f4a_ms_water==2),
+          1,complete_anydeath_Kenya_complete$f4a_ms_water))
+#table(complete_anydeath_Kenya_complete$f4a_ms_water)
+complete_anydeath_Kenya_complete$f4a_ms_water <- 
+  (ifelse((complete_anydeath_Kenya_complete$f4a_ms_water==3 | complete_anydeath_Kenya_complete$f4a_ms_water==4),
+          2,complete_anydeath_Kenya_complete$f4a_ms_water))
+#table(complete_anydeath_Kenya_complete$f4a_ms_water)
+complete_anydeath_Kenya_complete <- complete_anydeath_Kenya_complete %>% filter(f4a_ms_water!=5)
+#table(complete_anydeath_Kenya_complete$f4a_ms_water)
+complete_anydeath_Kenya_complete$f4a_ms_water <- as.factor(complete_anydeath_Kenya_complete$f4a_ms_water)
+summary(complete_anydeath_Kenya_complete$f4a_ms_water)
+
+main.Kenya <- CPR.funct(data=complete_anydeath_Kenya_complete,outcome="death_all",iter=100,nvars_opts=c(1:10))
 main.Kenya[["df_imps"]]
 main.Kenya[["AUC_df"]]
 main.Kenya[["calib"]]
+
+#save(main.Kenya, file = "/main.Kenya.100iter.callib.Rdata")
+
 
 # names      var_red
 # 1               f4b_muac 3.6300150238
@@ -2936,7 +3187,7 @@ main.Kenya[["calib"]]
 
 ################### main (0-59mo) any death -HAZ + MUAC by country - India ####
 names<-append(x=names, values=c("f4b_muac"))
-names <- names[!names %in% c("f4b_haz")]
+names <- names[!names %in% c("f4b_haz","site")]
 
 #too few outcomes to converge
 main.India <- CPR.funct(data=complete_anydeath_India,outcome="death_all",iter=10,nvars_opts=c(5,10))
@@ -2946,7 +3197,7 @@ main.India[["calib"]]
 
 ################### main (0-59mo) any death -HAZ + MUAC by country - Bang ####
 names<-append(x=names, values=c("f4b_muac"))
-names <- names[!names %in% c("f4b_haz")]
+names <- names[!names %in% c("f4b_haz","site")]
 
 #too few outcomes to converge
 main.Bang <- CPR.funct(data=complete_anydeath_Bang,outcome="death_all",iter=10,nvars_opts=c(5,10))
@@ -2956,7 +3207,7 @@ main.Bang[["calib"]]
 
 ################### main (0-59mo) any death -HAZ + MUAC by country - Pak ####
 names<-append(x=names, values=c("f4b_muac"))
-names <- names[!names %in% c("f4b_haz")]
+names <- names[!names %in% c("f4b_haz","site")]
 
 #too few outcomes to converge reliably
 main.Pak <- CPR.funct(data=complete_anydeath_Pak_complete,outcome="death_all",iter=100,nvars_opts=c(5,10))
@@ -2964,7 +3215,7 @@ main.Pak[["df_imps"]]
 main.Pak[["AUC_df"]]
 main.Pak[["calib"]]
 
-################### by country growth falter - Africa, val in Asia ####
+################### by country any death - fit Africa, val in Asia ####
 names<-append(x=names, values=c("f4b_muac"))
 names <- names[!names %in% c("f4b_haz")]
 
@@ -2972,6 +3223,8 @@ death.Afr <- CPR.funct(data=cases_anydeath_Afr,outcome="death_all",iter=100,nvar
 death.Afr[["df_imps"]]
 death.Afr[["AUC_df"]]
 death.Afr[["calib"]]
+
+#save(death.Afr, file = "/death.Afr.100iter.callib.Rdata")
 
 # names      var_red
 # 1               f4b_muac 1.208133e+01
@@ -3130,7 +3383,7 @@ death.Afr[["calib"]]
 # 19 0.8246133 0.004008987 0.8167558 0.8324707  0.95    RF    9
 # 20 0.8277448 0.003965218 0.8199731 0.8355165  0.95    RF   10
 
-# # A tibble: 10 × 7
+# # A tibble: 10 ? 7
 # nvar    intc intc_LCI intc_UCI slope slope_LCI slope_UCI
 # <int>   <dbl>    <dbl>    <dbl> <dbl>     <dbl>     <dbl>
 #   1     1 -0.0371   -0.463    0.346 1.00      0.697      1.33
@@ -3178,7 +3431,7 @@ paste(round(Asia_2var_AfrFit_AUC$auc,2)," (",
       round(ci.auc(Asia_2var_AfrFit_AUC)[3],2),")",sep="")
 # "0.93 (0.9, 0.96)"
 
-################### by country growth falter - Asia, val in Africa ####
+################### by country any death - Asia, val in Africa ####
 death.Asia <- CPR.funct(data=cases_anydeath_SEAsia,outcome="death_all",iter=20,nvars_opts=c(1:10))
 death.Asia[["df_imps"]]
 death.Asia[["AUC_df"]]
@@ -3216,12 +3469,10 @@ paste(round(Afr_2var_AsiaFit_AUC$auc,2)," (",
 names<-append(x=names, values=c("f4b_muac"))
 names <- names[!names %in% c("f4b_haz")]
 
-hosp <- CPR.funct(data=complete_hospdeath,outcome="death_hosp",iter=100,nvars_opts=c(1:10,15,20,30,40,50))
+hosp <- CPR.funct(data=complete_hospdeath,outcome="death_hosp",iter=100,nvars_opts=c(1:10))
 hosp[["df_imps"]]
 hosp[["AUC_df"]]
 hosp[["calib"]]
-
-#save(hosp, file = "/hosp.100iter.nocallib.Rdata")
 
 # names      var_red
 # 1               f4b_muac 2.359422e+00
@@ -3499,17 +3750,261 @@ segments(x0=0.27,y0=0.8,x1=0.27,y1=0.0,lty=2,col="gray")
 dev.off()
 
 
+################### hosp death = 0-11(age_1) in hospital -HAZ +MUAC all cases ####
+names<-append(x=names, values=c("f4b_muac"))
+names <- names[!names %in% c("f4b_haz")]
+
+hosp.011 <- CPR.funct(data=complete_hospdeath_age1,outcome="death_hosp",iter=10,nvars_opts=c(1:10))
+hosp.011[["df_imps"]]
+hosp.011[["AUC_df"]]
+hosp.011[["calib"]]
+
+# names      var_red
+# 1               f4b_muac 1.192304e+00
+# 2               f4b_temp 1.119629e+00
+# 3               f4b_resp 8.482389e-01
+# 4          f4a_ppl_house 5.763893e-01
+# 5         f4b_skin_flaky 4.244325e-01
+# 6           f4a_dad_live 4.138023e-01
+# 7               base_age 4.098997e-01
+# 8        f4b_chest_indrw 4.077839e-01
+# 9       f4a_yng_children 4.002948e-01
+# 10         f4a_slp_rooms 3.854238e-01
+# 11        f4a_disp_feces 3.817142e-01
+# 12          f4a_drh_days 3.545632e-01
+# 13        f4a_offr_drink 3.057430e-01
+# 14          f4a_drh_conv 2.896198e-01
+# 15             f4b_admit 2.832462e-01
+# 16         f4a_prim_schl 2.814193e-01
+# 17         f4b_recommend 2.678906e-01
+# 18           f3_drh_hosp 2.566975e-01
+# 19            f4b_mental 2.411711e-01
+# 20    f4a_cur_fastbreath 2.250333e-01
+# 21                  site 2.108935e-01
+# 22             f3_drh_iv 2.069962e-01
+# 23        f4a_seek_other 1.944788e-01
+# 24     f4a_drh_bellypain 1.858302e-01
+# 25     f4a_water_pubwell 1.842851e-01
+# 26              f4b_skin 1.775662e-01
+# 27          f4a_ms_water 1.762162e-01
+# 28        f4a_trt_method 1.716333e-01
+# 29          f4a_wash_use 1.702427e-01
+# 30          f4a_ani_goat 1.637029e-01
+# 31     f4a_hometrt_othr2 1.593938e-01
+# 32             f4b_mouth 1.489969e-01
+# 33    f4a_water_deepwell 1.465117e-01
+# 34        f4a_fuel_other 1.389968e-01
+# 35    f4a_water_covpwell 1.364984e-01
+# 36        f4a_hometrt_ab 1.318237e-01
+# 37         f3_drh_turgor 1.300694e-01
+# 38        f4b_under_nutr 1.297937e-01
+# 39         f4a_ani_sheep 1.287116e-01
+# 40        f4a_fuel_grass 1.279745e-01
+# 41              f4b_eyes 1.244308e-01
+# 42           f4a_ani_cat 1.228866e-01
+# 43          f4a_cur_skin 1.216778e-01
+# 44        f4a_wash_nurse 1.215776e-01
+# 45       f4a_cur_thirsty 1.213382e-01
+# 46      f4a_hometrt_herb 1.193382e-01
+# 47          f4b_abn_hair 1.186646e-01
+# 48     f4a_hometrt_othr1 1.167599e-01
+# 49      f4a_house_agland 1.161662e-01
+# 50          f4a_wash_def 1.152700e-01
+# 51          f4a_seek_doc 1.132089e-01
+# 52        f4a_drh_thirst 1.114536e-01
+# 53      f4a_hometrt_zinc 1.100224e-01
+# 54        f4a_water_pond 1.041681e-01
+# 55  f4a_drh_lethrgy_miss 1.033970e-01
+# 56         f4a_breastfed 1.015990e-01
+# 57            f4b_rectal 1.009829e-01
+# 58        f4a_house_cart 1.009660e-01
+# 59         f4a_drh_consc 9.870855e-02
+# 60         f4a_drh_vomit 9.621112e-02
+# 61        f4a_max_stools 9.308513e-02
+# 62      f4a_seek_outside 9.196845e-02
+# 63       f4a_house_radio 9.127746e-02
+# 64             f4a_floor 9.052821e-02
+# 65         f4a_drh_blood 9.010822e-02
+# 66        f4a_house_elec 8.930037e-02
+# 67      f4a_relationship 8.885581e-02
+# 68          f4a_wash_eat 8.879315e-02
+# 69             f3_gender 8.856053e-02
+# 70         f4a_drh_cough 8.830177e-02
+# 71           f4a_ani_dog 8.748794e-02
+# 72       f4a_ani_rodents 8.564045e-02
+# 73       f4a_seek_friend 8.396621e-02
+# 74      f4a_drh_restless 8.158190e-02
+# 75        f4a_water_yard 7.864465e-02
+# 76        f4a_seek_pharm 7.805252e-02
+# 77      f4a_cur_restless 7.567377e-02
+# 78            f4a_ani_no 7.537246e-02
+# 79         f4a_wash_cook 7.531233e-02
+# 80         f4a_fuel_crop 7.514571e-02
+# 81           f4b_bipedal 7.508501e-02
+# 82         f4a_share_fac 7.507718e-02
+# 83        f4a_water_bore 7.492383e-02
+# 84       f4a_store_water 7.381578e-02
+# 85      f4a_cur_drymouth 7.365547e-02
+# 86       f4a_house_scoot 7.279823e-02
+# 87        f4a_wash_child 7.243928e-02
+# 88           f4a_ani_cow 7.186819e-02
+# 89         f4a_fac_waste 7.108978e-02
+# 90       f4a_water_avail 7.046788e-02
+# 91      f4a_hometrt_none 6.928337e-02
+# 92         f4a_fuel_dung 6.901568e-02
+# 93       f4a_hometrt_ors 6.898348e-02
+# 94        f4a_house_bike 6.869670e-02
+# 95         f4a_trt_water 6.261464e-02
+# 96          f4a_ani_fowl 6.255819e-02
+# 97      f4b_nature_stool 5.820578e-02
+# 98         f4a_ani_other 5.805340e-02
+# 99      f4a_drh_prolapse 5.723608e-02
+# 100     f4a_seek_privdoc 5.629211e-02
+# 101      f4a_house_phone 5.451345e-02
+# 102    f4a_drh_lessdrink 5.414386e-02
+# 103    f4a_hometrt_maize 4.934920e-02
+# 104       f4a_house_tele 4.819192e-02
+# 105     f4a_water_pubtap 4.777033e-02
+# 106        f4a_fuel_wood 4.774081e-02
+# 107    f4a_fuel_charcoal 4.726974e-02
+# 108     f4a_house_fridge 4.696707e-02
+# 109  f4a_hometrt_othrliq 4.328158e-02
+# 110  f4a_water_shallwell 3.841524e-02
+# 111        f4a_house_car 3.623178e-02
+# 112     f4a_water_bought 3.225066e-02
+# 113       f4a_water_rain 3.116985e-02
+# 114      f4a_seek_healer 2.796215e-02
+# 115      f4a_wash_animal 2.507574e-02
+# 116       f4a_drh_strain 7.725491e-03
+# 117      f4a_fuel_natgas 4.982927e-03
+# 118      f4a_water_river 3.843918e-03
+# 119        f4a_fuel_kero 3.483992e-03
+# 120    f4a_water_covwell 2.798104e-03
+# 121        f4a_wash_othr 2.402399e-03
+# 122       f4a_house_none 1.714286e-03
+# 123  f4a_water_prospring 1.333333e-03
+# 124       f4a_water_well 1.114286e-03
+# 125      f4a_water_house 1.064935e-03
+# 126       f4a_water_othr 9.523810e-04
+# 127       f4a_house_boat 5.000000e-04
+# 128        f4a_fuel_coal 8.888889e-05
+# 129        f4a_fuel_elec 1.696833e-05
+# 130      f4a_fuel_biogas 0.000000e+00
+# 131     f4a_fuel_propane 0.000000e+00
+# 132   f4a_water_unspring 0.000000e+00
+# 133     f4a_hometrt_milk 0.000000e+00
+# 134       f4a_seek_remdy 0.000000e+00
+# 135    f4b_observe_stool 0.000000e+00
+
+# AUC          SE     lower     upper level Model nvar
+# 1  0.8215838 0.025986888 0.7706505 0.8725172  0.95    LR    1
+# 2  0.9024594 0.017579971 0.8680033 0.9369155  0.95    LR    2
+# 3  0.9321467 0.011808049 0.9090034 0.9552901  0.95    LR    3
+# 4  0.9336894 0.010420381 0.9132659 0.9541130  0.95    LR    4
+# 5  0.9186926 0.013451439 0.8923282 0.9450569  0.95    LR    5
+# 6  0.9218959 0.014094939 0.8942704 0.9495215  0.95    LR    6
+# 7  0.9274749 0.014414492 0.8992230 0.9557268  0.95    LR    7
+# 8  0.9312875 0.014836216 0.9022091 0.9603660  0.95    LR    8
+# 9  0.9422815 0.009441684 0.9237762 0.9607869  0.95    LR    9
+# 10 0.9250224 0.023499370 0.8789644 0.9710803  0.95    LR   10
+# 11 0.5947989 0.075808321 0.4462173 0.7433805  0.95    RF    1
+# 12 0.8281877 0.040062171 0.7496673 0.9067081  0.95    RF    2
+# 13 0.8515065 0.033252875 0.7863321 0.9166809  0.95    RF    3
+# 14 0.8667761 0.041374430 0.7856837 0.9478685  0.95    RF    4
+# 15 0.8835642 0.026961117 0.8307214 0.9364070  0.95    RF    5
+# 16 0.8756421 0.029051440 0.8187023 0.9325819  0.95    RF    6
+# 17 0.8716640 0.022007562 0.8285300 0.9147981  0.95    RF    7
+# 18 0.8710306 0.020704656 0.8304502 0.9116110  0.95    RF    8
+# 19 0.8459887 0.044224964 0.7593094 0.9326680  0.95    RF    9
+# 20 0.8402104 0.045138507 0.7517406 0.9286803  0.95    RF   10
+
+#intercept <0, overestimation
+#intercept >0, underestimation
+#slopes <1, estimated risks too extreme in both directions
+#slope >1 risk estimates to moderate
+#slightly positive slope indicates slight underestimation
+
+AUC_df <- hosp.011[["AUC_df"]]
+#jpeg("/DeathHosp_AUCs_GEMS011.jpg",width=600,height=480,quality=100)
+par(mar=c(5,5,4,2))
+plot(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[1:length(hosp.011[["nvars_opts"]])[1]],
+     xlab="number of variables",ylab="AUC",
+     main="Death in hospital in cases 0-11mo in GEMS",
+     ylim=c(0.5,1.0),
+     pch=1,col="red",cex=2,lwd=2,cex.axis=1.5,cex.lab=1.5,cex.main=1.5)
+points(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[(length(hosp.011[["nvars_opts"]])[1]+1):dim(AUC_df)[1]],
+       pch=2,col="blue",cex=2,lwd=2)
+legend("topleft",c("logistic reg","random forest"),col=c("red","blue"),pch=c(1,2),cex=1.5)
+dev.off()
+
+
+################### hosp death = 12-23(age_2) in hospital -HAZ +MUAC all cases ####
+names<-append(x=names, values=c("f4b_muac"))
+names <- names[!names %in% c("f4b_haz")]
+
+hosp.1223 <- CPR.funct(data=complete_hospdeath_age2,outcome="death_hosp",iter=10,nvars_opts=c(1:10))
+hosp.1223[["df_imps"]]
+hosp.1223[["AUC_df"]]
+hosp.1223[["calib"]]
+
+#intercept <0, overestimation
+#intercept >0, underestimation
+#slopes <1, estimated risks too extreme in both directions
+#slope >1 risk estimates to moderate
+#slightly positive slope indicates slight underestimation
+
+AUC_df <- hosp.011[["AUC_df"]]
+#jpeg("/DeathHosp_AUCs_GEMS011.jpg",width=600,height=480,quality=100)
+par(mar=c(5,5,4,2))
+plot(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[1:length(hosp.011[["nvars_opts"]])[1]],
+     xlab="number of variables",ylab="AUC",
+     main="Death in hospital in cases 0-11mo in GEMS",
+     ylim=c(0.5,1.0),
+     pch=1,col="red",cex=2,lwd=2,cex.axis=1.5,cex.lab=1.5,cex.main=1.5)
+points(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[(length(hosp.011[["nvars_opts"]])[1]+1):dim(AUC_df)[1]],
+       pch=2,col="blue",cex=2,lwd=2)
+legend("topleft",c("logistic reg","random forest"),col=c("red","blue"),pch=c(1,2),cex=1.5)
+dev.off()
+
+
+################### hosp death = 24-59(age_3) in hospital -HAZ +MUAC all cases ####
+names<-append(x=names, values=c("f4b_muac"))
+names <- names[!names %in% c("f4b_haz")]
+
+hosp.2459 <- CPR.funct(data=complete_hospdeath_age3,outcome="death_hosp",iter=10,nvars_opts=c(1:10))
+hosp.2459[["df_imps"]]
+hosp.2459[["AUC_df"]]
+hosp.2459[["calib"]]
+
+#intercept <0, overestimation
+#intercept >0, underestimation
+#slopes <1, estimated risks too extreme in both directions
+#slope >1 risk estimates to moderate
+#slightly positive slope indicates slight underestimation
+
+AUC_df <- hosp.011[["AUC_df"]]
+#jpeg("/DeathHosp_AUCs_GEMS011.jpg",width=600,height=480,quality=100)
+par(mar=c(5,5,4,2))
+plot(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[1:length(hosp.011[["nvars_opts"]])[1]],
+     xlab="number of variables",ylab="AUC",
+     main="Death in hospital in cases 0-11mo in GEMS",
+     ylim=c(0.5,1.0),
+     pch=1,col="red",cex=2,lwd=2,cex.axis=1.5,cex.lab=1.5,cex.main=1.5)
+points(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[(length(hosp.011[["nvars_opts"]])[1]+1):dim(AUC_df)[1]],
+       pch=2,col="blue",cex=2,lwd=2)
+legend("topleft",c("logistic reg","random forest"),col=c("red","blue"),pch=c(1,2),cex=1.5)
+dev.off()
+
+
+
 ################### DEATH at home -HAZ +MUAC all cases ####
 names<-append(x=names, values=c("f4b_muac"))
 names <- names[!names %in% c("f4b_haz")]
 
-home <- CPR.funct(data=complete_homedeath,outcome="death_home",iter=100,nvars_opts=c(1:10,15,20,30,40,50))
+home <- CPR.funct(data=complete_homedeath,outcome="death_home",iter=100,nvars_opts=c(1:10))
 home[["df_imps"]]
 home[["AUC_df"]]
 home[["calib"]]
-
-#save(home, file = "/home.100iter.nocallib.Rdata")
-
 
 # names     var_red
 # 1               f4b_muac 9.339578119
@@ -3727,6 +4222,484 @@ dev.off()
 
 
 
+################### home death ROC curve ####
+#want a single ROC surve for CV in test datasets. use "result"
+result<-home[["result"]]
+
+roc.data=result %>% split(.,list(.$nvar),drop=TRUE) %>% .$"2" %>% #swith this .$"x" for number of var; #subset to all the iter's (v-fold cross validations) for a given nvar (number of predictor variables in CPR)
+  split(.,list(.$iter),drop=TRUE) #now have a list for each iter
+
+#iter are the folds
+# table($iter)
+#>>> now 1612 per iteration
+
+#reformatting the data so in the same layout as example for 
+predict_combo=list(NA)
+true_combo=list(NA)
+
+for (i in 1:home[["iter"]]){ #this iter from the main RF/LR loop
+  temp.list <- list(roc.data[[i]]$pred_glm)
+  predict_combo <- c(predict_combo,temp.list)
+  
+  temp.list2 <- list(roc.data[[i]]$true)
+  true_combo <- c(true_combo,temp.list2)
+  
+}
+predict_combo=predict_combo[-1]
+true_combo=true_combo[-1]
+str(predict_combo)
+str(true_combo)
+combo <- list(predict_combo,true_combo)
+names(combo) <- c("pred_glm","true")  #renaming
+str(combo)
+
+CV.roc.data <- cvAUC(predictions=combo$pred_glm, labels=combo$true) #perf is an object of class "performance" from the ROCR pckg
+
+CV.roc.data.DeathAll.2 <- CV.roc.data
+CV.roc.data.DeathAll.5 <- CV.roc.data
+CV.roc.data.DeathAll.10 <- CV.roc.data
+#to save
+CV.roc.data.DeathAll <- list(CV.roc.data.DeathAll.2,CV.roc.data.DeathAll.5,CV.roc.data.DeathAll.10)
+names(CV.roc.data.DeathAll) <- c("DA.2","DA.5","DA.10")  #renaming
+str(CV.roc.data.DeathAll)
+#save(CV.roc.data.DeathAll, file = "/CV.roc.data.homeDeath.Rdata")
+
+# #find the desired points for obtained Sp for given Se
+# #options(max.print=2000)
+# Se.Sp<-data.frame(Se=round(roc.obj.5var$sensitivities,2),Sp=round(roc.obj.5var$specificities,2))
+# Se.Sp[which(Se.Sp$Se==0.85),]
+# #between the point (x0[i], y0[i]) and the point (x1[i], y1[i])
+# #x0, y0, x1 = x0, y1 = y0,
+
+#load(file = "/CV.roc.data.homeDeath.Rdata")
+#(there's a better way to do this as a list...)
+CV.roc.data.DA.2 <- CV.roc.data.DeathAll$DA.2
+CV.roc.data.DA.5 <- CV.roc.data.DeathAll$DA.5
+CV.roc.data.DA.10 <- CV.roc.data.DeathAll$DA.10
+
+#Plot CV AUC >>> SMA: a single line of the averaged cross-validated ROC curve
+#jpeg("/roc_homeDeath.jpg",width=480,height=480,quality=400)
+plot(CV.roc.data.DA.2$perf, avg="vertical", main="Cross-validated ROC Curves for Deaths after Discharge",
+     col="#1c61b6", lwd=2, lty=1) 
+plot(CV.roc.data.DA.5$perf, avg="vertical", col="#1c61b6", lwd=2, lty=2, add=TRUE) 
+plot(CV.roc.data.DA.10$perf, avg="vertical", col="#1c61b6", lwd=2, lty=3, add=TRUE) 
+legend("bottomright", 
+       legend = c("2-var","5-var","10-var"), 
+       col = c("#1c61b6"),
+       lty = c(1,2,3),
+       lwd = 2)
+segments(x0=0,y0=0.8,x1=0.23,y1=0.8,lty=2,col="gray")
+segments(x0=0.23,y0=0.8,x1=0.23,y1=0.0,lty=2,col="gray")
+dev.off()
+
+
+################### home death = 0-11(age_1) in hospital -HAZ +MUAC all cases ####
+names<-append(x=names, values=c("f4b_muac"))
+names <- names[!names %in% c("f4b_haz")]
+
+home.011 <- CPR.funct(data=complete_homedeath_age1,outcome="death_home",iter=10,nvars_opts=c(1:10))
+home.011[["df_imps"]]
+home.011[["AUC_df"]]
+home.011[["calib"]]
+
+# names      var_red
+# 1               f4b_muac 4.9617261596
+# 2               f4b_resp 2.7970324838
+# 3               f4b_temp 2.6252133362
+# 4               base_age 1.9572748110
+# 5          f4a_ppl_house 1.4989540989
+# 6           f4a_drh_days 1.2685373238
+# 7         f4a_offr_drink 1.1763190882
+# 8           f4a_ms_water 1.0564576701
+# 9          f4a_share_fac 0.9707633057
+# 10          f4a_dad_live 0.9275068893
+# 11      f4a_drh_prolapse 0.8979684617
+# 12      f4a_yng_children 0.8975568071
+# 13      f4a_relationship 0.8499393216
+# 14         f4a_slp_rooms 0.8426360612
+# 15         f4a_breastfed 0.8259140692
+# 16       f4a_water_avail 0.8193183176
+# 17        f4b_under_nutr 0.8077552354
+# 18        f4a_disp_feces 0.8065822687
+# 19       f4b_chest_indrw 0.7761822264
+# 20          f4b_abn_hair 0.7623581448
+# 21         f4a_prim_schl 0.7497950490
+# 22         f4b_recommend 0.6925278519
+# 23              f4b_skin 0.6901192451
+# 24            f4b_mental 0.6629180575
+# 25                  site 0.6594180700
+# 26        f4a_trt_method 0.5694687197
+# 27    f4a_cur_fastbreath 0.5602814483
+# 28          f4a_cur_skin 0.5181000297
+# 29        f4a_max_stools 0.5092666199
+# 30     f4a_drh_bellypain 0.4881738072
+# 31      f4a_seek_privdoc 0.4783929834
+# 32         f3_drh_turgor 0.4680922896
+# 33     f4a_water_covwell 0.4586249320
+# 34          f4a_wash_def 0.4249380047
+# 35         f4a_drh_vomit 0.4194339329
+# 36             f3_drh_iv 0.4182115558
+# 37       f4a_water_river 0.4142265214
+# 38           f3_drh_hosp 0.4087813349
+# 39             f4b_mouth 0.4053962877
+# 40             f4b_admit 0.4022480744
+# 41        f4a_drh_strain 0.3987001344
+# 42      f4a_hometrt_none 0.3951990071
+# 43        f4a_wash_nurse 0.3937404922
+# 44         f4a_wash_cook 0.3839771272
+# 45          f4a_ani_goat 0.3808342355
+# 46         f4a_fac_waste 0.3616600939
+# 47        f4a_water_bore 0.3600033092
+# 48  f4a_drh_lethrgy_miss 0.3585251271
+# 49       f4a_cur_thirsty 0.3566736399
+# 50       f4a_ani_rodents 0.3561425200
+# 51        f4a_wash_child 0.3552348147
+# 52         f4a_drh_cough 0.3551152139
+# 53           f4b_bipedal 0.3549976002
+# 54        f4a_hometrt_ab 0.3542353899
+# 55        f4a_drh_thirst 0.3500666297
+# 56          f4a_wash_eat 0.3492763347
+# 57           f4a_ani_cat 0.3469033156
+# 58     f4a_drh_lessdrink 0.3410071817
+# 59       f4a_hometrt_ors 0.3390974496
+# 60   f4a_water_prospring 0.3370537930
+# 61         f4a_ani_sheep 0.3271240440
+# 62     f4a_fuel_charcoal 0.3239484787
+# 63        f4a_house_elec 0.3229890899
+# 64      f4a_seek_outside 0.3224281256
+# 65             f3_gender 0.3211353025
+# 66       f4a_fuel_biogas 0.3104863715
+# 67        f4a_house_bike 0.3094878402
+# 68           f4a_ani_cow 0.3076073773
+# 69        f4a_house_tele 0.3057475641
+# 70       f4a_house_radio 0.3045795293
+# 71         f4a_trt_water 0.3014596806
+# 72         f4a_ani_other 0.3014050715
+# 73       f4a_seek_healer 0.2976559928
+# 74      f4a_house_agland 0.2940441463
+# 75      f4a_drh_restless 0.2918547832
+# 76          f4a_drh_conv 0.2904422875
+# 77      f4a_water_bought 0.2880284939
+# 78             f4a_floor 0.2848877148
+# 79           f4a_ani_dog 0.2826418399
+# 80         f4a_wash_othr 0.2826119497
+# 81     f4a_water_pubwell 0.2794335873
+# 82        f4a_house_cart 0.2787365174
+# 83          f4a_wash_use 0.2734787269
+# 84      f4a_cur_drymouth 0.2708454122
+# 85         f4a_fuel_kero 0.2703194379
+# 86      f4a_hometrt_herb 0.2696133700
+# 87       f4a_store_water 0.2613928320
+# 88       f4a_house_phone 0.2573307034
+# 89              f4b_eyes 0.2560480956
+# 90      f4a_cur_restless 0.2553074557
+# 91        f4a_water_yard 0.2544962860
+# 92          f4a_ani_fowl 0.2489249810
+# 93      f4a_water_pubtap 0.2480013859
+# 94         f4a_fuel_wood 0.2479442133
+# 95         f4a_drh_blood 0.2477542054
+# 96        f4a_water_pond 0.2469461203
+# 97   f4a_hometrt_othrliq 0.2418759754
+# 98       f4a_house_scoot 0.2346706449
+# 99         f4a_fuel_elec 0.2309813376
+# 100    f4a_hometrt_maize 0.2250578594
+# 101     f4a_house_fridge 0.2013881225
+# 102    f4a_hometrt_othr1 0.2005447623
+# 103       f4b_skin_flaky 0.1994301105
+# 104   f4a_water_deepwell 0.1994207945
+# 105        f4a_drh_consc 0.1936250133
+# 106      f4a_fuel_natgas 0.1799369965
+# 107         f4a_seek_doc 0.1781214181
+# 108       f4a_water_rain 0.1726939234
+# 109           f4a_ani_no 0.1562195982
+# 110        f4a_house_car 0.1511944278
+# 111       f4a_water_othr 0.1384996690
+# 112       f4a_fuel_grass 0.1304015260
+# 113           f4b_rectal 0.1251860808
+# 114      f4a_water_house 0.1064378854
+# 115       f4a_seek_other 0.1024499697
+# 116      f4a_wash_animal 0.1017038151
+# 117  f4a_water_shallwell 0.1004825519
+# 118       f4a_water_well 0.1003172488
+# 119   f4a_water_covpwell 0.0995560904
+# 120        f4a_fuel_crop 0.0984716727
+# 121       f4a_fuel_other 0.0888910157
+# 122     f4a_hometrt_milk 0.0614902132
+# 123    f4a_hometrt_othr2 0.0561623887
+# 124       f4a_seek_pharm 0.0327041555
+# 125        f4a_fuel_dung 0.0320065945
+# 126     f4b_nature_stool 0.0119388621
+# 127       f4a_house_boat 0.0086495169
+# 128     f4a_hometrt_zinc 0.0057221807
+# 129       f4a_seek_remdy 0.0042085863
+# 130        f4a_fuel_coal 0.0023300232
+# 131     f4a_fuel_propane 0.0017846443
+# 132   f4a_water_unspring 0.0012642857
+# 133       f4a_house_none 0.0009142857
+# 134      f4a_seek_friend 0.0007533613
+# 135    f4b_observe_stool 0.0000000000
+
+# AUC         SE     lower     upper level Model nvar
+# 1  0.7863790 0.01780670 0.7514785 0.8212795  0.95    LR    1
+# 2  0.8029893 0.01636613 0.7709123 0.8350664  0.95    LR    2
+# 3  0.8134824 0.01603557 0.7820532 0.8449115  0.95    LR    3
+# 4  0.8126710 0.01643594 0.7804571 0.8448848  0.95    LR    4
+# 5  0.8129537 0.01657895 0.7804595 0.8454478  0.95    LR    5
+# 6  0.8082282 0.01662093 0.7756517 0.8408046  0.95    LR    6
+# 7  0.8085930 0.01677517 0.7757143 0.8414717  0.95    LR    7
+# 8  0.8043300 0.01685500 0.7712948 0.8373652  0.95    LR    8
+# 9  0.8053984 0.01703653 0.7720074 0.8387894  0.95    LR    9
+# 10 0.8016220 0.01724304 0.7678262 0.8354177  0.95    LR   10
+# 11 0.5896979 0.03736423 0.5164654 0.6629305  0.95    RF    1
+# 12 0.6833089 0.02289927 0.6384272 0.7281907  0.95    RF    2
+# 13 0.7658223 0.01887424 0.7288295 0.8028152  0.95    RF    3
+# 14 0.7545564 0.02162988 0.7121626 0.7969502  0.95    RF    4
+# 15 0.7339397 0.02170245 0.6914036 0.7764757  0.95    RF    5
+# 16 0.7239649 0.02091937 0.6829637 0.7649662  0.95    RF    6
+# 17 0.7395141 0.01949319 0.7013081 0.7777200  0.95    RF    7
+# 18 0.7404153 0.02054218 0.7001533 0.7806772  0.95    RF    8
+# 19 0.7441537 0.02218767 0.7006667 0.7876407  0.95    RF    9
+# 20 0.7501279 0.02077481 0.7094100 0.7908458  0.95    RF   10
+
+#intercept <0, overestimation
+#intercept >0, underestimation
+#slopes <1, estimated risks too extreme in both directions
+#slope >1 risk estimates to moderate
+#slightly positive slope indicates slight underestimation
+
+AUC_df <- home.011[["AUC_df"]]
+#jpeg("/DeathHome_AUCs_GEMS011.jpg",width=600,height=480,quality=100)
+par(mar=c(5,5,4,2))
+plot(AUC_df$nvar[1:length(home.011[["nvars_opts"]])[1]],AUC_df$AUC[1:length(home.011[["nvars_opts"]])[1]],
+     xlab="number of variables",ylab="AUC",
+     main="Death in hospital in cases 0-11mo in GEMS",
+     ylim=c(0.5,1.0),
+     pch=1,col="red",cex=2,lwd=2,cex.axis=1.5,cex.lab=1.5,cex.main=1.5)
+points(AUC_df$nvar[1:length(home.011[["nvars_opts"]])[1]],AUC_df$AUC[(length(home.011[["nvars_opts"]])[1]+1):dim(AUC_df)[1]],
+       pch=2,col="blue",cex=2,lwd=2)
+legend("topleft",c("logistic reg","random forest"),col=c("red","blue"),pch=c(1,2),cex=1.5)
+dev.off()
+
+
+################### home death = 12-23(age_2) in hospital -HAZ +MUAC all cases ####
+names<-append(x=names, values=c("f4b_muac"))
+names <- names[!names %in% c("f4b_haz")]
+
+hosp.1223 <- CPR.funct(data=complete_homedeath_age2,outcome="death_home",iter=10,nvars_opts=c(1:10))
+hosp.1223[["df_imps"]]
+hosp.1223[["AUC_df"]]
+hosp.1223[["calib"]]
+
+# names      var_red
+# 1               f4b_muac 3.0880691878
+# 2          f4a_ppl_house 1.0751010201
+# 3               f4b_temp 0.9866620478
+# 4               f4b_resp 0.9097460027
+# 5       f4a_hometrt_milk 0.6976084622
+# 6       f4a_yng_children 0.6425276923
+# 7               base_age 0.6222009032
+# 8          f4a_slp_rooms 0.6194469925
+# 9         f4a_offr_drink 0.5549150882
+# 10          f4a_drh_days 0.5434642905
+# 11          f4b_abn_hair 0.4618218460
+# 12        f4b_under_nutr 0.4526143914
+# 13              f4b_skin 0.4478621012
+# 14      f4a_hometrt_herb 0.3723895831
+# 15             f3_drh_iv 0.3666149853
+# 16          f4a_dad_live 0.3578184474
+# 17                  site 0.3410808899
+# 18        f4a_water_bore 0.3266594932
+# 19         f4a_drh_consc 0.3116178985
+# 20         f4a_breastfed 0.2984341140
+# 21         f3_drh_turgor 0.2982737755
+# 22            f4b_mental 0.2889058066
+# 23          f4a_ms_water 0.2762351711
+# 24       f4a_water_avail 0.2730937597
+# 25        f4a_disp_feces 0.2726407950
+# 26         f4a_prim_schl 0.2623039505
+# 27     f4a_drh_bellypain 0.2600509169
+# 28           f4b_bipedal 0.2423398104
+# 29     f4a_drh_lessdrink 0.2362374529
+# 30        f4a_water_well 0.2280899912
+# 31          f4a_wash_def 0.2203218106
+# 32     f4a_hometrt_othr1 0.2150086185
+# 33  f4a_drh_lethrgy_miss 0.2120423754
+# 34       f4a_house_radio 0.2052537043
+# 35         f4b_recommend 0.2046017536
+# 36        f4a_trt_method 0.2013881556
+# 37           f3_drh_hosp 0.1961225530
+# 38         f4a_drh_vomit 0.1916175916
+# 39      f4a_relationship 0.1903206765
+# 40       f4a_hometrt_ors 0.1897323515
+# 41          f4a_ani_goat 0.1879214428
+# 42      f4a_drh_prolapse 0.1832589104
+# 43        f4a_seek_pharm 0.1823220026
+# 44         f4a_wash_cook 0.1809639523
+# 45         f4a_share_fac 0.1793943902
+# 46          f4a_cur_skin 0.1747585695
+# 47     f4a_water_covwell 0.1714907944
+# 48        f4a_house_elec 0.1662442307
+# 49      f4b_nature_stool 0.1644220130
+# 50         f4a_ani_other 0.1614864272
+# 51      f4a_hometrt_none 0.1614469735
+# 52      f4a_seek_outside 0.1593924067
+# 53             f4b_mouth 0.1575346582
+# 54        f4a_wash_child 0.1565603190
+# 55    f4a_cur_fastbreath 0.1556305349
+# 56        f4a_drh_thirst 0.1552467352
+# 57         f4a_drh_cough 0.1543993601
+# 58     f4a_water_pubwell 0.1523796859
+# 59             f3_gender 0.1507700846
+# 60       f4a_ani_rodents 0.1485977450
+# 61             f4b_admit 0.1483400798
+# 62           f4a_ani_cat 0.1466429360
+# 63      f4a_cur_restless 0.1458333443
+# 64      f4a_house_agland 0.1426328712
+# 65             f4a_floor 0.1401507643
+# 66        f4a_max_stools 0.1397701029
+# 67       f4a_fuel_biogas 0.1393444475
+# 68       f4a_seek_healer 0.1368373716
+# 69       f4a_cur_thirsty 0.1340800322
+# 70         f4a_drh_blood 0.1314293871
+# 71        f4a_water_rain 0.1310326009
+# 72        f4a_wash_nurse 0.1305763441
+# 73         f4a_ani_sheep 0.1293390380
+# 74      f4a_water_pubtap 0.1276046022
+# 75           f4a_ani_cow 0.1265670314
+# 76     f4a_fuel_charcoal 0.1215481986
+# 77        f4a_house_tele 0.1212672696
+# 78       f4a_house_phone 0.1209036640
+# 79   f4a_water_prospring 0.1181037775
+# 80            f4b_rectal 0.1160635558
+# 81        f4a_house_bike 0.1156698919
+# 82        f4a_house_none 0.1081358213
+# 83         f4a_trt_water 0.1067192432
+# 84      f4a_cur_drymouth 0.1017674391
+# 85      f4a_drh_restless 0.1000136096
+# 86    f4a_water_covpwell 0.0994026723
+# 87         f4a_wash_othr 0.0986018535
+# 88       f4a_house_scoot 0.0982316191
+# 89          f4a_wash_use 0.0966868460
+# 90    f4a_water_unspring 0.0962856265
+# 91        f4b_skin_flaky 0.0960224657
+# 92        f4a_house_cart 0.0918416000
+# 93        f4a_water_yard 0.0878168280
+# 94           f4a_ani_dog 0.0877379780
+# 95    f4a_water_deepwell 0.0822290820
+# 96       f4a_store_water 0.0777804952
+# 97     f4a_hometrt_maize 0.0777299592
+# 98        f4a_water_pond 0.0775189915
+# 99            f4a_ani_no 0.0746760037
+# 100     f4a_house_fridge 0.0733104767
+# 101         f4a_wash_eat 0.0723385935
+# 102        f4a_fuel_wood 0.0716040191
+# 103         f4a_ani_fowl 0.0687196771
+# 104      f4a_water_river 0.0632657430
+# 105     f4a_hometrt_zinc 0.0529706612
+# 106     f4a_water_bought 0.0506740534
+# 107     f4a_seek_privdoc 0.0488055862
+# 108        f4a_fac_waste 0.0450546197
+# 109      f4a_fuel_natgas 0.0349581237
+# 110             f4b_eyes 0.0301505867
+# 111       f4a_hometrt_ab 0.0261388421
+# 112        f4a_house_car 0.0252769886
+# 113       f4a_drh_strain 0.0147849651
+# 114      f4b_chest_indrw 0.0065048937
+# 115       f4a_fuel_grass 0.0060126713
+# 116      f4a_water_house 0.0056557008
+# 117        f4a_fuel_crop 0.0035392768
+# 118         f4a_drh_conv 0.0034779249
+# 119    f4a_hometrt_othr2 0.0032600148
+# 120       f4a_seek_remdy 0.0031363636
+# 121      f4a_wash_animal 0.0025681451
+# 122       f4a_seek_other 0.0025500000
+# 123        f4a_fuel_kero 0.0017861324
+# 124  f4a_hometrt_othrliq 0.0013184926
+# 125        f4a_fuel_dung 0.0011703617
+# 126      f4a_seek_friend 0.0008366013
+# 127       f4a_fuel_other 0.0007285714
+# 128        f4a_fuel_coal 0.0005952381
+# 129     f4a_fuel_propane 0.0003333333
+# 130  f4a_water_shallwell 0.0003050649
+# 131         f4a_seek_doc 0.0001134454
+# 132       f4a_house_boat 0.0000000000
+# 133        f4a_fuel_elec 0.0000000000
+# 134       f4a_water_othr 0.0000000000
+# 135    f4b_observe_stool 0.0000000000
+
+# AUC         SE     lower     upper level Model nvar
+# 1  0.8486663 0.02424976 0.8011376 0.8961949  0.95    LR    1
+# 2  0.8507111 0.02347867 0.8046937 0.8967284  0.95    LR    2
+# 3  0.8530747 0.02364577 0.8067298 0.8994196  0.95    LR    3
+# 4  0.8533942 0.02123654 0.8117713 0.8950171  0.95    LR    4
+# 5  0.8542274 0.02074035 0.8135770 0.8948777  0.95    LR    5
+# 6  0.8533611 0.01933277 0.8154696 0.8912526  0.95    LR    6
+# 7  0.8566357 0.01894184 0.8195104 0.8937610  0.95    LR    7
+# 8  0.8552155 0.01985324 0.8163039 0.8941272  0.95    LR    8
+# 9  0.8486091 0.02018134 0.8090544 0.8881638  0.95    LR    9
+# 10 0.8461550 0.02149103 0.8040334 0.8882766  0.95    LR   10
+# 11 0.7334413 0.05889402 0.6180111 0.8488714  0.95    RF    1
+# 12 0.7635018 0.03874078 0.6875713 0.8394324  0.95    RF    2
+# 13 0.7712061 0.03516738 0.7022793 0.8401329  0.95    RF    3
+# 14 0.7907399 0.03697952 0.7182614 0.8632184  0.95    RF    4
+# 15 0.7794093 0.03800737 0.7049163 0.8539024  0.95    RF    5
+# 16 0.8061115 0.03247258 0.7424664 0.8697566  0.95    RF    6
+# 17 0.8138204 0.02729177 0.7603295 0.8673113  0.95    RF    7
+# 18 0.8253956 0.02551381 0.7753894 0.8754017  0.95    RF    8
+# 19 0.8500862 0.02626645 0.7986049 0.9015675  0.95    RF    9
+# 20 0.8711154 0.02007705 0.8317651 0.9104657  0.95    RF   10
+
+#intercept <0, overestimation
+#intercept >0, underestimation
+#slopes <1, estimated risks too extreme in both directions
+#slope >1 risk estimates to moderate
+#slightly positive slope indicates slight underestimation
+
+AUC_df <- hosp.011[["AUC_df"]]
+#jpeg("/DeathHosp_AUCs_GEMS011.jpg",width=600,height=480,quality=100)
+par(mar=c(5,5,4,2))
+plot(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[1:length(hosp.011[["nvars_opts"]])[1]],
+     xlab="number of variables",ylab="AUC",
+     main="Death in hospital in cases 0-11mo in GEMS",
+     ylim=c(0.5,1.0),
+     pch=1,col="red",cex=2,lwd=2,cex.axis=1.5,cex.lab=1.5,cex.main=1.5)
+points(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[(length(hosp.011[["nvars_opts"]])[1]+1):dim(AUC_df)[1]],
+       pch=2,col="blue",cex=2,lwd=2)
+legend("topleft",c("logistic reg","random forest"),col=c("red","blue"),pch=c(1,2),cex=1.5)
+dev.off()
+
+
+################### home death = 24-59(age_3) in hospital -HAZ +MUAC all cases ####
+names<-append(x=names, values=c("f4b_muac"))
+names <- names[!names %in% c("f4b_haz")]
+
+hosp.2459 <- CPR.funct(data=complete_homedeath_age3,outcome="death_home",iter=10,nvars_opts=c(1:10))
+hosp.2459[["df_imps"]]
+hosp.2459[["AUC_df"]]
+hosp.2459[["calib"]]
+
+#intercept <0, overestimation
+#intercept >0, underestimation
+#slopes <1, estimated risks too extreme in both directions
+#slope >1 risk estimates to moderate
+#slightly positive slope indicates slight underestimation
+
+AUC_df <- hosp.011[["AUC_df"]]
+#jpeg("/DeathHosp_AUCs_GEMS011.jpg",width=600,height=480,quality=100)
+par(mar=c(5,5,4,2))
+plot(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[1:length(hosp.011[["nvars_opts"]])[1]],
+     xlab="number of variables",ylab="AUC",
+     main="Death in hospital in cases 0-11mo in GEMS",
+     ylim=c(0.5,1.0),
+     pch=1,col="red",cex=2,lwd=2,cex.axis=1.5,cex.lab=1.5,cex.main=1.5)
+points(AUC_df$nvar[1:length(hosp.011[["nvars_opts"]])[1]],AUC_df$AUC[(length(hosp.011[["nvars_opts"]])[1]+1):dim(AUC_df)[1]],
+       pch=2,col="blue",cex=2,lwd=2)
+legend("topleft",c("logistic reg","random forest"),col=c("red","blue"),pch=c(1,2),cex=1.5)
+dev.off()
+
+
+
+
 ####################
 #KIDMS for rederive growth faltering prediction
 ################### import, org Kilifi data ####
@@ -3775,6 +4748,85 @@ table(kilifi$death_all,kilifi$agegroup)
 table(kilifi$death_hosp)
 table(kilifi$death_home)
 
+################### external validation 4var: MAIN any death ####
+GEMS_glm_death <- glm(death_all~f4b_muac+f4b_resp+f4b_temp+base_age,
+                   data=complete_anydeath,family="binomial",control=glm.control(maxit=50))
+summary(GEMS_glm_death)
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept) -11.709354   2.946540  -3.974 7.07e-05 ***
+#   f4b_muac     -0.837129   0.055226 -15.158  < 2e-16 ***
+#   f4b_resp      0.023904   0.007842   3.048   0.0023 ** 
+#   f4b_temp      0.461924   0.081235   5.686 1.30e-08 ***
+#   base_age      0.022321   0.008879   2.514   0.0119 * 
+round(coef(GEMS_glm_death),4)
+#save(GEMS_glm_death, file = "/GEMS_glm_deathAll_4var.Rdata")
+round(exp(coef(glm(death_all~f4b_muac+f4b_resp+f4b_temp+base_age,
+                   data=complete_anydeath,family="binomial",control=glm.control(maxit=50)))),4)
+# (Intercept)    f4b_muac    f4b_resp    f4b_temp    base_age 
+# 0.0000      0.4330      1.0242      1.5871      1.0226 
+
+GEMS_4var<-complete_anydeath %>% select(death_all,f4b_muac,f4b_resp,f4b_temp,base_age)
+GEMS_4var$pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=GEMS_4var,type="response"))
+GEMS_AUC <- AUC(predictions=GEMS_4var$pred_glm,labels=GEMS_4var$death_all)
+GEMS_AUC
+# [1] 0.8558919
+#using pROC package since need CI
+GEMS_AUC <- roc(response=GEMS_4var$death_all,predictor=GEMS_4var$pred_glm)
+paste(round(GEMS_AUC$auc,2)," (",
+      round(ci.auc(GEMS_AUC)[1],2),", ",
+      round(ci.auc(GEMS_AUC)[3],2),")",sep="")
+# "0.86 (0.83, 0.89)"
+
+
+GEMS_decilesCC <- GEMS_4var %>% mutate(decile_glm=ntile(pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_all),mean(pred_glm))
+#save(GEMS_decilesCC, file = "/GEMS_decilesCC_deathAll_4var.Rdata")
+
+kilifi$GEMS_pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=kilifi,type="response"))
+kilifi_AUC <- AUC(predictions=kilifi$GEMS_pred_glm,labels=kilifi$death_all)
+kilifi_AUC
+# [1] 0.7374956
+kilifi_AUC <- roc(response=kilifi$death_all,predictor=kilifi$GEMS_pred_glm)
+paste(round(kilifi_AUC$auc,2)," (",
+      round(ci.auc(kilifi_AUC)[1],2),", ",
+      round(ci.auc(kilifi_AUC)[3],2),")",sep="")
+# "0.73 (0.7, 0.77)"
+
+kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_all),mean(GEMS_pred_glm))
+#save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathAll_4var.Rdata")
+
+#jpeg("/DeathAll_CC_ExternalVal_GEMS059.jpg",width=600,height=480,quality=100)
+plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
+     xlab="Predicted Probability",ylab="Observed Proportion",
+     main=expression(paste("Calibration Curve: All Deaths")),
+     xlim=c(0,0.4),ylim=c(0,0.4))
+title("GEMS-derived CPR",line=0.7,font.main=1)
+points(GEMS_decilesCC$`mean(pred_glm)`,GEMS_decilesCC$`mean(death_all)`,col="red",pch=1)
+points(kilifi_decilesCC$`mean(GEMS_pred_glm)`,kilifi_decilesCC$`mean(death_all)`,col="blue",pch=2)
+legend("topleft",col=c("red","blue"),c("GEMS data (0-59mo), AUC=0.86","Kilifi data (0-59mo), AUC=0.74"),pch=c(1,2))
+dev.off()
+
+#calib
+intercept <- glm(death_all~1,offset=log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(intercept)
+confint(intercept)
+slope <- glm(death_all~log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(slope)
+confint(slope)
+
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)  0.62388    0.07462    8.36   <2e-16 ***
+#   2.5 %    97.5 % 
+#   0.4755069 0.7681226 
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)                            -0.46235    0.13838  -3.341 0.000834 ***
+#   log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.57404    0.04347  13.206  < 2e-16 ***
+#   2.5 %     97.5 %
+#   (Intercept)                            -0.7350533 -0.1920384
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.4897328  0.6602851
+
+
 ################### external validation 2var: MAIN any death ####
 GEMS_glm_death <- glm(death_all~f4b_muac+f4b_resp,
                       data=complete_anydeath,family="binomial",control=glm.control(maxit=50))
@@ -3821,7 +4873,10 @@ kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
   group_by(decile_glm) %>% summarize(mean(death_all),mean(GEMS_pred_glm))
 #save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathAll_2var.Rdata")
 
-#jpeg("/DeathAll_CC_ExternalVal_GEMS059_2var.jpg",width=600,height=480,quality=100)
+# load(file = "/GEMS_decilesCC_deathAll_2var.Rdata")
+# load(file = "/kilifi_decilesCC_deathAll_2var.Rdata")
+
+#tiff("/DeathAll_CC_ExternalVal_GEMS059_2var.tif",units="px",width=1980,height=1650,res=300)
 plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
      xlab="Predicted Probability",ylab="Observed Proportion",
      main=expression(paste("Calibration Curve: All Deaths")),
@@ -3857,5 +4912,566 @@ confint(slope)
 # 2.5 %     97.5 %
 #   (Intercept)                            -0.5624790 0.03098968
 # log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.5188765 0.69832576
+
+
+################### external validation 1var: MAIN any death ####
+GEMS_glm_death <- glm(death_all~f4b_muac,
+                      data=complete_anydeath,family="binomial",control=glm.control(maxit=50))
+summary(GEMS_glm_death)
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)   6.2958     0.5839   10.78   <2e-16 ***
+#   f4b_muac     -0.7910     0.0483  -16.38   <2e-16 ***
+round(coef(GEMS_glm_death),4)
+#save(GEMS_glm_death, file = "/GEMS_glm_deathAll_1var.Rdata")
+round(exp(coef(glm(death_all~f4b_muac,
+                   data=complete_anydeath,family="binomial",control=glm.control(maxit=50)))),4)
+# (Intercept)    f4b_muac 
+# 542.2858      0.4534 
+
+GEMS_1var<-complete_anydeath %>% select(death_all,f4b_muac)
+GEMS_1var$pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=GEMS_1var,type="response"))
+GEMS_AUC <- AUC(predictions=GEMS_1var$pred_glm,labels=GEMS_1var$death_all)
+GEMS_AUC
+# [1] 0.8307989
+#using pROC package since need CI
+GEMS_AUC <- roc(response=GEMS_1var$death_all,predictor=GEMS_1var$pred_glm)
+paste(round(GEMS_AUC$auc,2)," (",
+      round(ci.auc(GEMS_AUC)[1],2),", ",
+      round(ci.auc(GEMS_AUC)[3],2),")",sep="")
+# "0.83 (0.8, 0.86)"
+
+
+GEMS_decilesCC <- GEMS_1var %>% mutate(decile_glm=ntile(pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_all),mean(pred_glm))
+#save(GEMS_decilesCC, file = "/GEMS_decilesCC_deathAll_1var.Rdata")
+
+kilifi$GEMS_pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=kilifi,type="response"))
+kilifi_AUC <- AUC(predictions=kilifi$GEMS_pred_glm,labels=kilifi$death_all)
+kilifi_AUC
+# [1] 0.7179465
+kilifi_AUC <- roc(response=kilifi$death_all,predictor=kilifi$GEMS_pred_glm)
+paste(round(kilifi_AUC$auc,2)," (",
+      round(ci.auc(kilifi_AUC)[1],2),", ",
+      round(ci.auc(kilifi_AUC)[3],2),")",sep="")
+# "0.72 (0.68, 0.75)"
+
+kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_all),mean(GEMS_pred_glm))
+#save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathAll_1var.Rdata")
+
+#jpeg("/DeathAll_CC_ExternalVal_GEMS059_1var.jpg",width=600,height=480,quality=100)
+plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
+     xlab="Predicted Probability",ylab="Observed Proportion",
+     main=expression(paste("Calibration Curve: All Deaths")),
+     xlim=c(0,0.4),ylim=c(0,0.4))
+title("GEMS-derived CPR",line=0.7,font.main=1)
+points(GEMS_decilesCC$`mean(pred_glm)`,GEMS_decilesCC$`mean(death_all)`,col="red",pch=1)
+points(kilifi_decilesCC$`mean(GEMS_pred_glm)`,kilifi_decilesCC$`mean(death_all)`,col="blue",pch=2)
+legend("topleft",col=c("red","blue"),c("GEMS data (0-59mo), AUC=0.83","Kilifi data (0-59mo), AUC=0.72"),pch=c(1,2))
+dev.off()
+
+#calib
+intercept <- glm(death_all~1,offset=log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(intercept)
+confint(intercept)
+slope <- glm(death_all~log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(slope)
+confint(slope)
+
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)  0.89631    0.07338   12.21   <2e-16 ***
+#   2.5 %    97.5 % 
+#   0.7503625 1.0380892 
+# 
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)                            -0.33633    0.15754  -2.135   0.0328 *  
+#   log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.57094    0.04627  12.338   <2e-16 ***
+#   2.5 %      97.5 %
+#   (Intercept)                            -0.6470885 -0.02885205
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.4809503  0.66250778
+
+
+################### external validation 2var: MAIN any death - Kenya only ####
+GEMS_glm_death <- glm(death_all~f4b_muac+f4b_resp,
+                      data=complete_anydeath_Kenya,family="binomial",control=glm.control(maxit=50))
+summary(GEMS_glm_death)
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)  8.515605   1.609084   5.292 1.21e-07 ***
+#   f4b_muac    -0.917609   0.114183  -8.036 9.26e-16 ***
+#   f4b_resp     0.008297   0.014459   0.574    0.566  
+round(coef(GEMS_glm_death),4)
+#save(GEMS_glm_death, file = "/GEMS_glm_deathAll_2var_Kenya.Rdata")
+round(exp(coef(glm(death_all~f4b_muac+f4b_resp,
+                   data=complete_anydeath_Kenya,family="binomial",control=glm.control(maxit=50)))),4)
+# (Intercept)    f4b_muac    f4b_resp 
+# 4992.0634      0.3995      1.0083  
+
+GEMS_2var_Kenya<-complete_anydeath_Kenya %>% select(death_all,f4b_muac,f4b_resp)
+GEMS_2var_Kenya$pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=GEMS_2var_Kenya,type="response"))
+GEMS_AUC <- AUC(predictions=GEMS_2var_Kenya$pred_glm,labels=GEMS_2var_Kenya$death_all)
+GEMS_AUC
+# [1] 0.8585684
+#using pROC package since need CI
+GEMS_AUC <- roc(response=GEMS_2var_Kenya$death_all,predictor=GEMS_2var_Kenya$pred_glm)
+paste(round(GEMS_AUC$auc,2)," (",
+      round(ci.auc(GEMS_AUC)[1],2),", ",
+      round(ci.auc(GEMS_AUC)[3],2),")",sep="")
+# "0.86 (0.8, 0.92)"
+
+
+GEMS_decilesCC <- GEMS_2var_Kenya %>% mutate(decile_glm=ntile(pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_all),mean(pred_glm))
+#save(GEMS_decilesCC, file = "/GEMS_decilesCC_deathAll_2var_Kenya.Rdata")
+
+kilifi$GEMS_pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=kilifi,type="response"))
+kilifi_AUC <- AUC(predictions=kilifi$GEMS_pred_glm,labels=kilifi$death_all)
+kilifi_AUC
+# [1] 0.7249678
+kilifi_AUC <- roc(response=kilifi$death_all,predictor=kilifi$GEMS_pred_glm)
+paste(round(kilifi_AUC$auc,2)," (",
+      round(ci.auc(kilifi_AUC)[1],2),", ",
+      round(ci.auc(kilifi_AUC)[3],2),")",sep="")
+# "0.72 (0.69, 0.76)"
+
+kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_all),mean(GEMS_pred_glm))
+#save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathAll_2var_Kenya.Rdata")
+
+#jpeg("/DeathAll_CC_ExternalVal_GEMS059_2var_Kenya.jpg",width=600,height=480,quality=100)
+plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
+     xlab="Predicted Probability",ylab="Observed Proportion",
+     main=expression(paste("Calibration Curve: All Deaths in Kenya")),
+     xlim=c(0,0.4),ylim=c(0,0.4))
+title("GEMS-derived CPR",line=0.7,font.main=1)
+points(GEMS_decilesCC$`mean(pred_glm)`,GEMS_decilesCC$`mean(death_all)`,col="red",pch=1)
+points(kilifi_decilesCC$`mean(GEMS_pred_glm)`,kilifi_decilesCC$`mean(death_all)`,col="blue",pch=2)
+legend("topleft",col=c("red","blue"),c("GEMS data (0-59mo), AUC=0.86 (0.80, 0.92)","Kilifi data (0-59mo), AUC=0.72 (0.69, 0.76)"),pch=c(1,2))
+dev.off()
+
+#calib
+intercept <- glm(death_all~1,offset=log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(intercept)
+confint(intercept)
+slope <- glm(death_all~log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(slope)
+confint(slope)
+
+# Coefficients:
+# Estimate Std. Error z value Pr(>|z|)   
+# (Intercept) -0.24638    0.07642  -3.224  0.00126 **
+# Waiting for profiling to be done...
+# 2.5 %      97.5 % 
+#   -0.39829671 -0.09865555 
+
+# Coefficients:
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)                            -1.08926    0.10362  -10.51   <2e-16 ***
+#   log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.50069    0.03957   12.65   <2e-16 ***
+  
+# Waiting for profiling to be done...
+# 2.5 %     97.5 %
+#   (Intercept)                            -1.294439 -0.8878263
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.423787  0.5790449
+
+
+################### external validation 4var: DEATH in hospital ####
+GEMS_glm_death <- glm(death_hosp~f4b_muac+f4b_resp+f4b_temp+base_age,
+                      data=complete_hospdeath,family="binomial",control=glm.control(maxit=50))
+summary(GEMS_glm_death)
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept) -18.61016    5.31338  -3.503 0.000461 ***
+#   f4b_muac     -0.86213    0.09791  -8.805  < 2e-16 ***
+#   f4b_resp      0.02879    0.01245   2.313 0.020718 *  
+#   f4b_temp      0.59891    0.14650   4.088 4.35e-05 ***
+#   base_age      0.04694    0.01475   3.182 0.001465 **
+round(coef(GEMS_glm_death),4)
+#save(GEMS_glm_death, file = "/GEMS_glm_deathHosp_4var.Rdata")
+round(exp(coef(glm(death_hosp~f4b_muac+f4b_resp+f4b_temp+base_age,
+                   data=complete_hospdeath,family="binomial",control=glm.control(maxit=50)))),4)
+# (Intercept)    f4b_muac    f4b_resp    f4b_temp    base_age 
+# 0.0000      0.4223      1.0292      1.8201      1.0481
+
+GEMS_4var<-complete_anydeath %>% select(death_hosp,f4b_muac,f4b_resp,f4b_temp,base_age)
+GEMS_4var$pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=GEMS_4var,type="response"))
+GEMS_AUC <- AUC(predictions=GEMS_4var$pred_glm,labels=GEMS_4var$death_hosp)
+GEMS_AUC
+# [1] 0.8869814
+
+GEMS_decilesCC <- GEMS_4var %>% mutate(decile_glm=ntile(pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_hosp),mean(pred_glm))
+#save(GEMS_decilesCC, file = "/GEMS_decilesCC_deathHosp_4var.Rdata")
+
+kilifi$GEMS_pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=kilifi,type="response"))
+kilifi_AUC <- AUC(predictions=kilifi$GEMS_pred_glm,labels=kilifi$death_hosp)
+kilifi_AUC
+# [1] 0.7236402
+
+kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_hosp),mean(GEMS_pred_glm))
+#save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathHosp_4var.Rdata")
+
+#jpeg("/DeathHosp_CC_ExternalVal_GEMS059_4var.jpg",width=600,height=480,quality=100)
+plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
+     xlab="Predicted Probability",ylab="Observed Proportion",
+     main=expression(paste("Calibration Curve: Deaths in Hospital")),
+     xlim=c(0,0.2),ylim=c(0,0.2))
+title("GEMS-derived CPR",line=0.7,font.main=1)
+points(GEMS_decilesCC$`mean(pred_glm)`,GEMS_decilesCC$`mean(death_hosp)`,col="red",pch=1)
+points(kilifi_decilesCC$`mean(GEMS_pred_glm)`,kilifi_decilesCC$`mean(death_hosp)`,col="blue",pch=2)
+legend("topleft",col=c("red","blue"),c("GEMS data (0-59mo), AUC=0.87","Kilifi data (0-59mo), AUC=0.72"),pch=c(1,2))
+dev.off()
+
+#calib
+intercept <- glm(death_hosp~1,offset=log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(intercept)
+confint(intercept)
+slope <- glm(death_hosp~log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(slope)
+confint(slope)
+
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)   1.0380     0.1018    10.2   <2e-16 ***
+#   2.5 %    97.5 % 
+#   0.8338884 1.2332007 
+# 
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)                            -0.80730    0.23518  -3.433 0.000598 ***
+#   log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.48898    0.05311   9.207  < 2e-16 ***
+#   2.5 %     97.5 %
+#   (Intercept)                            -1.2772765 -0.3535589
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.3852787  0.5937959
+
+
+################### external validation 2var: DEATH in hospital ####
+GEMS_glm_death <- glm(death_hosp~f4b_muac+f4b_resp,
+                      data=complete_hospdeath,family="binomial",control=glm.control(maxit=50))
+summary(GEMS_glm_death)
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)  2.33125    1.26216   1.847   0.0647 .  
+# f4b_muac    -0.69050    0.08639  -7.993 1.32e-15 ***
+#   f4b_resp     0.03212    0.01167   2.753   0.0059 ** 
+round(coef(GEMS_glm_death),4)
+#save(GEMS_glm_death, file = "/GEMS_glm_deathHosp_2var.Rdata")
+round(exp(coef(glm(death_hosp~f4b_muac+f4b_resp,
+                   data=complete_hospdeath,family="binomial",control=glm.control(maxit=50)))),4)
+# (Intercept)    f4b_muac    f4b_resp 
+# 10.2908      0.5013      1.0326
+
+GEMS_2var<-complete_anydeath %>% select(death_hosp,f4b_muac,f4b_resp)
+GEMS_2var$pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=GEMS_2var,type="response"))
+GEMS_AUC <- AUC(predictions=GEMS_2var$pred_glm,labels=GEMS_2var$death_hosp)
+GEMS_AUC
+# [1] 0.8660985
+
+GEMS_decilesCC <- GEMS_2var %>% mutate(decile_glm=ntile(pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_hosp),mean(pred_glm))
+#save(GEMS_decilesCC, file = "/GEMS_decilesCC_deathHosp_2var.Rdata")
+
+kilifi$GEMS_pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=kilifi,type="response"))
+kilifi_AUC <- AUC(predictions=kilifi$GEMS_pred_glm,labels=kilifi$death_hosp)
+kilifi_AUC
+# [1] 0.7492435
+
+kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_hosp),mean(GEMS_pred_glm))
+#save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathHosp_2var.Rdata")
+
+#jpeg("/DeathHosp_CC_ExternalVal_GEMS059_2var.jpg",width=600,height=480,quality=100)
+plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
+     xlab="Predicted Probability",ylab="Observed Proportion",
+     main=expression(paste("Calibration Curve: Deaths in Hospital")),
+     xlim=c(0,0.2),ylim=c(0,0.2))
+title("GEMS-derived CPR",line=0.7,font.main=1)
+points(GEMS_decilesCC$`mean(pred_glm)`,GEMS_decilesCC$`mean(death_hosp)`,col="red",pch=1)
+points(kilifi_decilesCC$`mean(GEMS_pred_glm)`,kilifi_decilesCC$`mean(death_hosp)`,col="blue",pch=2)
+legend("topleft",col=c("red","blue"),c("GEMS data (0-59mo), AUC=0.87","Kilifi data (0-59mo), AUC=0.75"),pch=c(1,2))
+dev.off()
+
+#calib
+intercept <- glm(death_hosp~1,offset=log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(intercept)
+confint(intercept)
+slope <- glm(death_hosp~log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(slope)
+confint(slope)
+
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)  1.35374    0.09928   13.63   <2e-16 ***
+#   2.5 %   97.5 % 
+#   1.154535 1.543982 
+# 
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)                            -0.06859    0.27467   -0.25    0.803    
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.63891    0.06181   10.34   <2e-16 ***
+#   2.5 %    97.5 %
+#   (Intercept)                            -0.6147587 0.4641589
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.5183292 0.7610292
+
+
+
+################### external validation 1var: DEATH in hospital ####
+GEMS_glm_death <- glm(death_hosp~f4b_muac,
+                      data=complete_hospdeath,family="binomial",control=glm.control(maxit=50))
+summary(GEMS_glm_death)
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)  4.35087    0.98844   4.402 1.07e-05 ***
+#   f4b_muac    -0.74754    0.08303  -9.003  < 2e-16 ***
+round(coef(GEMS_glm_death),4)
+#save(GEMS_glm_death, file = "/GEMS_glm_deathHosp_1var.Rdata")
+round(exp(coef(glm(death_hosp~f4b_muac,
+                   data=complete_hospdeath,family="binomial",control=glm.control(maxit=50)))),4)
+# (Intercept)    f4b_muac 
+# 77.5456      0.4735 
+
+GEMS_1var<-complete_anydeath %>% select(death_hosp,f4b_muac)
+GEMS_1var$pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=GEMS_1var,type="response"))
+GEMS_AUC <- AUC(predictions=GEMS_1var$pred_glm,labels=GEMS_1var$death_hosp)
+GEMS_AUC
+# [1] 0.8403117
+
+GEMS_decilesCC <- GEMS_1var %>% mutate(decile_glm=ntile(pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_hosp),mean(pred_glm))
+#save(GEMS_decilesCC, file = "/GEMS_decilesCC_deathHosp_1var.Rdata")
+
+kilifi$GEMS_pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=kilifi,type="response"))
+kilifi_AUC <- AUC(predictions=kilifi$GEMS_pred_glm,labels=kilifi$death_hosp)
+kilifi_AUC
+# [1] 0.7106909
+
+kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_hosp),mean(GEMS_pred_glm))
+#save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathHosp_1var.Rdata")
+
+#jpeg("/DeathHosp_CC_ExternalVal_GEMS059_1var.jpg",width=600,height=480,quality=100)
+plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
+     xlab="Predicted Probability",ylab="Observed Proportion",
+     main=expression(paste("Calibration Curve: Deaths in Hospital")),
+     xlim=c(0,0.2),ylim=c(0,0.2))
+title("GEMS-derived CPR",line=0.7,font.main=1)
+points(GEMS_decilesCC$`mean(pred_glm)`,GEMS_decilesCC$`mean(death_hosp)`,col="red",pch=1)
+points(kilifi_decilesCC$`mean(GEMS_pred_glm)`,kilifi_decilesCC$`mean(death_hosp)`,col="blue",pch=2)
+legend("topleft",col=c("red","blue"),c("GEMS data (0-59mo), AUC=0.84","Kilifi data (0-59mo), AUC=0.71"),pch=c(1,2))
+dev.off()
+
+#calib
+intercept <- glm(death_hosp~1,offset=log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(intercept)
+confint(intercept)
+slope <- glm(death_hosp~log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(slope)
+confint(slope)
+
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)  1.42333    0.09868   14.42   <2e-16 ***
+#   2.5 %   97.5 % 
+#   1.225313 1.612396 
+# 
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)                            -0.31007    0.28955  -1.071    0.284    
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.57374    0.06294   9.116   <2e-16 ***
+#   2.5 %    97.5 %
+#   (Intercept)                            -0.8881754 0.2490529
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.4504611 0.6975548
+
+
+
+################### external validation 4var: DEATH at home ####
+GEMS_glm_death <- glm(death_home~f4b_muac+f4b_resp+f4b_temp+base_age,
+                      data=complete_homedeath,family="binomial",control=glm.control(maxit=50))
+summary(GEMS_glm_death)
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept) -10.440602   3.418743  -3.054  0.00226 ** 
+#   f4b_muac     -0.790555   0.061745 -12.804  < 2e-16 ***
+#   f4b_resp      0.017926   0.008823   2.032  0.04217 *  
+#   f4b_temp      0.415972   0.093757   4.437 9.14e-06 ***
+#   base_age      0.010675   0.010809   0.988  0.32335  
+round(coef(GEMS_glm_death),4)
+#save(GEMS_glm_death, file = "/GEMS_glm_deathHome_4var.Rdata")
+round(exp(coef(glm(death_home~f4b_muac+f4b_resp+f4b_temp+base_age,
+                   data=complete_homedeath,family="binomial",control=glm.control(maxit=50)))),4)
+# (Intercept)    f4b_muac    f4b_resp    f4b_temp    base_age 
+# 0.0000      0.4536      1.0181      1.5158      1.0107 
+
+GEMS_4var<-complete_anydeath %>% select(death_home,f4b_muac,f4b_resp,f4b_temp,base_age)
+GEMS_4var$pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=GEMS_4var,type="response"))
+GEMS_AUC <- AUC(predictions=GEMS_4var$pred_glm,labels=GEMS_4var$death_home)
+GEMS_AUC
+# [1] 0.8440134
+
+GEMS_decilesCC <- GEMS_4var %>% mutate(decile_glm=ntile(pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_home),mean(pred_glm))
+#save(GEMS_decilesCC, file = "/GEMS_decilesCC_deathHome_4var.Rdata")
+
+kilifi$GEMS_pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=kilifi,type="response"))
+kilifi_AUC <- AUC(predictions=kilifi$GEMS_pred_glm,labels=kilifi$death_all)
+kilifi_AUC
+# [1] 0.7332254
+
+kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_home),mean(GEMS_pred_glm))
+#save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathHome_4var.Rdata")
+
+#jpeg("/DeathHome_CC_ExternalVal_GEMS059_4var.jpg",width=600,height=480,quality=100)
+plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
+     xlab="Predicted Probability",ylab="Observed Proportion",
+     main=expression(paste("Calibration Curve: Deaths at Home")),
+     xlim=c(0,0.4),ylim=c(0,0.4))
+title("GEMS-derived CPR",line=0.7,font.main=1)
+points(GEMS_decilesCC$`mean(pred_glm)`,GEMS_decilesCC$`mean(death_home)`,col="red",pch=1)
+points(kilifi_decilesCC$`mean(GEMS_pred_glm)`,kilifi_decilesCC$`mean(death_home)`,col="blue",pch=2)
+legend("topleft",col=c("red","blue"),c("GEMS data (0-59mo), AUC=0.84","Kilifi data (0-59mo), AUC=0.73"),pch=c(1,2))
+dev.off()
+
+#calib
+intercept <- glm(death_home~1,offset=log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(intercept)
+confint(intercept)
+slope <- glm(death_home~log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(slope)
+confint(slope)
+
+# Estimate Std. Error z value Pr(>|z|)
+# (Intercept)  0.08997    0.09844   0.914    0.361
+# 2.5 %     97.5 % 
+#   -0.1073781  0.2787509 
+# 
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)                            -1.20129    0.19700  -6.098 1.08e-09 ***
+#   log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.51830    0.05732   9.043  < 2e-16 ***
+#   2.5 %     97.5 %
+#   (Intercept)                            -1.596569 -0.8228016
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.406129  0.6311350
+
+
+################### external validation 2var: DEATH at home ####
+GEMS_glm_death <- glm(death_home~f4b_muac+f4b_resp,
+                      data=complete_homedeath,family="binomial",control=glm.control(maxit=50))
+summary(GEMS_glm_death)
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)  4.325252   0.816932   5.295 1.19e-07 ***
+#   f4b_muac    -0.736566   0.055535 -13.263  < 2e-16 ***
+#   f4b_resp     0.024780   0.008285   2.991  0.00278 ** 
+round(coef(GEMS_glm_death),4)
+#save(GEMS_glm_death, file = "/GEMS_glm_deathHome_2var.Rdata")
+round(exp(coef(glm(death_home~f4b_muac+f4b_resp,
+                   data=complete_homedeath,family="binomial",control=glm.control(maxit=50)))),4)
+# (Intercept)    f4b_muac    f4b_resp 
+# 75.5846      0.4788      1.0251
+
+GEMS_2var<-complete_anydeath %>% select(death_home,f4b_muac,f4b_resp)
+GEMS_2var$pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=GEMS_2var,type="response"))
+GEMS_AUC <- AUC(predictions=GEMS_2var$pred_glm,labels=GEMS_2var$death_home)
+GEMS_AUC
+# [1] 0.8402765
+
+GEMS_decilesCC <- GEMS_2var %>% mutate(decile_glm=ntile(pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_home),mean(pred_glm))
+#save(GEMS_decilesCC, file = "/GEMS_decilesCC_deathHome_2var.Rdata")
+
+kilifi$GEMS_pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=kilifi,type="response"))
+kilifi_AUC <- AUC(predictions=kilifi$GEMS_pred_glm,labels=kilifi$death_all)
+kilifi_AUC
+# [1] 0.7381043
+
+kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_home),mean(GEMS_pred_glm))
+#save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathHome_2var.Rdata")
+
+#jpeg("/DeathHome_CC_ExternalVal_GEMS059_2var.jpg",width=600,height=480,quality=100)
+plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
+     xlab="Predicted Probability",ylab="Observed Proportion",
+     main=expression(paste("Calibration Curve: Deaths at Home")),
+     xlim=c(0,0.4),ylim=c(0,0.4))
+title("GEMS-derived CPR",line=0.7,font.main=1)
+points(GEMS_decilesCC$`mean(pred_glm)`,GEMS_decilesCC$`mean(death_home)`,col="red",pch=1)
+points(kilifi_decilesCC$`mean(GEMS_pred_glm)`,kilifi_decilesCC$`mean(death_home)`,col="blue",pch=2)
+legend("topleft",col=c("red","blue"),c("GEMS data (0-59mo), AUC=0.84","Kilifi data (0-59mo), AUC=0.74"),pch=c(1,2))
+dev.off()
+
+#calib
+intercept <- glm(death_home~1,offset=log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(intercept)
+confint(intercept)
+slope <- glm(death_home~log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(slope)
+confint(slope)
+
+# Estimate Std. Error z value Pr(>|z|)   
+# (Intercept)  0.26169    0.09817   2.666  0.00768 **
+#   2.5 %     97.5 % 
+#   0.06486085 0.44993471 
+# 
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)                             -1.1509     0.2111  -5.452 4.97e-08 ***
+#   log(GEMS_pred_glm/(1 - GEMS_pred_glm))   0.5099     0.0587   8.686  < 2e-16 ***
+#   2.5 %     97.5 %
+#   (Intercept)                            -1.5748309 -0.7457446
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.3947467  0.6252127
+
+
+
+################### external validation 1var: DEATH at home ####
+GEMS_glm_death <- glm(death_home~f4b_muac,
+                      data=complete_homedeath,family="binomial",control=glm.control(maxit=50))
+summary(GEMS_glm_death)
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)   5.7778     0.6533   8.845   <2e-16 ***
+#   f4b_muac     -0.7733     0.0541 -14.293   <2e-16 ***
+round(coef(GEMS_glm_death),4)
+#save(GEMS_glm_death, file = "/GEMS_glm_deathHome_1var.Rdata")
+round(exp(coef(glm(death_home~f4b_muac,
+                   data=complete_homedeath,family="binomial",control=glm.control(maxit=50)))),4)
+# (Intercept)    f4b_muac 
+# 323.0630      0.4615 
+
+GEMS_1var<-complete_anydeath %>% select(death_home,f4b_muac)
+GEMS_1var$pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=GEMS_1var,type="response"))
+GEMS_AUC <- AUC(predictions=GEMS_1var$pred_glm,labels=GEMS_1var$death_home)
+GEMS_AUC
+# [1] 0.8238288
+
+GEMS_decilesCC <- GEMS_1var %>% mutate(decile_glm=ntile(pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_home),mean(pred_glm))
+#save(GEMS_decilesCC, file = "/GEMS_decilesCC_deathHome_1var.Rdata")
+
+kilifi$GEMS_pred_glm <- as.numeric(predict(GEMS_glm_death,newdata=kilifi,type="response"))
+kilifi_AUC <- AUC(predictions=kilifi$GEMS_pred_glm,labels=kilifi$death_all)
+kilifi_AUC
+# [1] 0.7179465
+
+kilifi_decilesCC <- kilifi %>% mutate(decile_glm=ntile(GEMS_pred_glm,10)) %>%
+  group_by(decile_glm) %>% summarize(mean(death_home),mean(GEMS_pred_glm))
+#save(kilifi_decilesCC, file = "/kilifi_decilesCC_deathHome_1var.Rdata")
+
+#jpeg("/DeathHome_CC_ExternalVal_GEMS059_1var.jpg",width=600,height=480,quality=100)
+plot(x=seq(0,1,by=0.1),y=seq(0,1,by=0.1),type="l",
+     xlab="Predicted Probability",ylab="Observed Proportion",
+     main=expression(paste("Calibration Curve: Deaths at Home")),
+     xlim=c(0,0.4),ylim=c(0,0.4))
+title("GEMS-derived CPR",line=0.7,font.main=1)
+points(GEMS_decilesCC$`mean(pred_glm)`,GEMS_decilesCC$`mean(death_home)`,col="red",pch=1)
+points(kilifi_decilesCC$`mean(GEMS_pred_glm)`,kilifi_decilesCC$`mean(death_home)`,col="blue",pch=2)
+legend("topleft",col=c("red","blue"),c("GEMS data (0-59mo), AUC=0.82","Kilifi data (0-59mo), AUC=0.72"),pch=c(1,2))
+dev.off()
+
+#calib
+intercept <- glm(death_home~1,offset=log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(intercept)
+confint(intercept)
+slope <- glm(death_home~log(GEMS_pred_glm/(1-GEMS_pred_glm)),family="binomial",data=kilifi)
+summary(slope)
+confint(slope)
+
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)  0.32582    0.09768   3.336 0.000851 ***
+#   2.5 %    97.5 % 
+#   0.1299591 0.5131159 
+# 
+# Estimate Std. Error z value Pr(>|z|)    
+# (Intercept)                            -1.15113    0.21883   -5.26 1.44e-07 ***
+#   log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.50137    0.05983    8.38  < 2e-16 ***
+#   2.5 %     97.5 %
+#   (Intercept)                            -1.5907744 -0.7313277
+# log(GEMS_pred_glm/(1 - GEMS_pred_glm))  0.3839185  0.6187939
 
 
